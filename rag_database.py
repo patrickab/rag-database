@@ -72,9 +72,8 @@ class EmbeddingModel:
             self.openai_async_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
     def chunk_text_tokenaware(self, texts: list[str]) -> list[list[str]]:
-        """
-        Splits text using a token-aware, hierarchical, general-purpose strategy with contextual overlap.
-        """
+        """Splits text using a token-aware, hierarchical, general-purpose strategy with contextual overlap."""
+
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=MODEL_CONFIG[self.model]["max_tokens"],
             chunk_overlap=200, # Common value, can be tuned.
@@ -92,6 +91,7 @@ class EmbeddingModel:
 
     def chunk_texts_naive(self, texts: list[str]) -> list[list[str]]:
         """Split chunks (naive general purpose approach - split by max tokens, ignores semantics & overlap)."""
+
         chunked_texts = []
         for text in texts:
             text_chunks = []
@@ -138,6 +138,7 @@ class EmbeddingModel:
         Calculates document-level embeddings. Considers chunking.
         Chapter-wise embeddings can be considered for pdf's articles etc.
         """
+
         chunked_texts = self.chunk_texts(texts)
 
         # 1. Flatten Chunks & Store Mapping
@@ -192,6 +193,7 @@ class VectorDB:
         Returns:
             RAGResponse
         """
+
         db_vectors = np.stack(self.database[DatabaseKeys.KEY_EMBEDDINGS].to_list())
 
         # Compute cosine similarity
