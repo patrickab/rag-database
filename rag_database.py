@@ -1,11 +1,14 @@
 from dataclasses import dataclass
 import json
 import os
+from typing import Optional
 
+from google.genai import Client as GeminiClient
+from google.genai import types
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import numpy as np
 from ollama import Client as OllamaClient
-from openai import AsyncOpenAI, OpenAI
+from openai import OpenAI as OpenAI
 import polars as pl
 import tqdm
 from transformers import AutoTokenizer
@@ -13,6 +16,8 @@ from transformers import AutoTokenizer
 from rag_config import (
     DEFAULT_EMBEDDING_MODEL,
     EMPTY_RAG_SCHEMA,
+    GEMINI_API_KEY,
+    GEMINI_EMBEDDING_MODELS,
     MODEL_CONFIG,
     OLLAMA_EMBEDDING_MODELS,
     OPENAI_API_KEY,
@@ -83,16 +88,18 @@ class EmbeddingModel:
 
         if self.model in OPENAI_EMBEDDING_MODELS:
             self.openai_sync_client = OpenAI(api_key=OPENAI_API_KEY)
-            self.openai_async_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-    def chunk_text_tokenaware(self, texts: list[str]) -> list[list[str]]:
+        if self.model in GEMINI_EMBEDDING_MODELS:
+            self.gemini_sync_client = GeminiClient(api_key=GEMINI_API_KEY)
+
+    def chunk_texts_tokenaware(self, texts: list[str]) -> list[list[str]]:
         """Splits text using a token-aware, hierarchical, general-purpose strategy with contextual overlap."""
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=MODEL_CONFIG[self.model]["max_tokens"],
             chunk_overlap=200, # Common value, can be tuned.
             length_function=self.length_function, # Tokenizer-based length function.
-            separators=["\n\n", "\n", " ", ""], # Hierarchical separators. Will try to split "\n\n" first, then "\n", then " ", etc.
+            separators=["\n\n", "\n", " "], # Hierarchical separators. Adjust to use-case, eg # ## ### for markdown articles.
         )
 
         all_chunked_texts = []
@@ -122,15 +129,30 @@ class EmbeddingModel:
 
         return chunked_texts
 
-    def single_embed(self, document: str) -> np.ndarray:
+    def single_embed(self, document: str, task_type: Optional[str]=None) -> np.ndarray:
         """Embed a single text."""
 
         if document == "":
             return np.zeros(MODEL_CONFIG[self.model]["dimensions"])
 
-        chunked_texts = self.chunk_text_tokenaware([document])
+        chunked_texts = self.chunk_texts_tokenaware([document])
 
         embeddings_list: list[np.ndarray] = []  
+
+        if self.model in GEMINI_EMBEDDING_MODELS:
+            config = types.EmbedContentConfig(
+                output_dimensionality=MODEL_CONFIG[self.model]["dimensions"],
+                task_type=task_type,
+            )
+
+            response = self.gemini_sync_client.models.embed_content(
+                model=self.model,
+                contents=chunked_texts,
+                config=config
+            )
+            embeddings = [np.array(e.values) for e in response.embeddings]
+            embeddings_list.extend(embeddings)
+
         if self.model in OPENAI_EMBEDDING_MODELS:
             for chunk in chunked_texts:
                 response = self.openai_sync_client.embeddings.create(
@@ -147,6 +169,7 @@ class EmbeddingModel:
                 response = self.ollama_client.embed(
                     model=self.model,
                     input=chunk,
+                    dimensions=MODEL_CONFIG[self.model]["dimensions"],
                 )
                 embedding = np.array(response.embeddings[0])
                 embeddings_list.append(embedding)
@@ -155,14 +178,13 @@ class EmbeddingModel:
 
         return aggregated_embedding
 
-    def embed_batch(self, texts: list[str]) -> np.ndarray:
+    def embed_batch(self, texts: list[str], task_type: Optional[str]) -> np.ndarray:
         """
         Embed many texts in one API call.
         Calculates document-level embeddings. Considers chunking.
         Chapter-wise embeddings can be considered for pdf's articles etc.
         """
-
-        chunked_texts = self.chunk_texts(texts)
+        chunked_texts = self.chunk_texts_tokenaware(texts)
 
         # 1. Flatten Chunks & Store Mapping
         lengths = [len(chunks) for chunks in chunked_texts]
@@ -179,6 +201,23 @@ class EmbeddingModel:
             )
 
             embeddings = np.array([d.embedding for d in response.data])
+
+        if self.model in GEMINI_EMBEDDING_MODELS:
+
+            config = types.EmbedContentConfig(
+                output_dimensionality=MODEL_CONFIG[self.model]["dimensions"],
+                task_type=task_type)
+
+            # 2. Batch Embed Flattened Chunks
+            response = self.gemini_sync_client.models.embed_content(
+                model=self.model,
+                contents=flattend_chunked_texts,
+                config=config
+            )
+
+            embeddings = np.array([e.values for e in response.embeddings])
+
+        # NOTE: Ollama batch embedding not supported yet.
 
         # 3. Reconstruct Structure
         embeddings = np.split(embeddings, np.cumsum(lengths)[:-1])
@@ -251,7 +290,7 @@ class RagDatabase:
 
     def rag_process_query(self, rag_query: RAGQuery) -> RAGResponse:
         """Process RAG query and return relevant results"""
-        query_embedding = self.embedding_model.single_embed(rag_query.query)
+        query_embedding = self.embedding_model.single_embed(rag_query.query, task_type="RETRIEVAL_QUERY")
         return self.vector_db.similarity_search(query_embedding, rag_query.k_documents)
 
     def add_documents(self, titles: str|list[str], texts: str|list[str]) -> None:
@@ -264,7 +303,18 @@ class RagDatabase:
                 {
                     DatabaseKeys.KEY_TITLE: titles,
                     DatabaseKeys.KEY_TXT: texts,
-                    DatabaseKeys.KEY_EMBEDDINGS: [emb.tolist() for emb in embeddings],
+                    DatabaseKeys.KEY_EMBEDDINGS: embeddings,
+                }
+            )
+
+        if self.embedding_model.model in GEMINI_EMBEDDING_MODELS:
+            embeddings = self.embedding_model.embed_batch(texts, task_type="RETRIEVAL_DOCUMENT")
+
+            new_entries = pl.DataFrame(
+                {
+                    DatabaseKeys.KEY_TITLE: titles,
+                    DatabaseKeys.KEY_TXT: texts,
+                    DatabaseKeys.KEY_EMBEDDINGS: embeddings,
                 }
             )
 
@@ -278,7 +328,7 @@ class RagDatabase:
                 {
                     DatabaseKeys.KEY_TITLE: titles,
                     DatabaseKeys.KEY_TXT: texts,
-                    DatabaseKeys.KEY_EMBEDDINGS: [emb.tolist() for emb in embeddings],
+                    DatabaseKeys.KEY_EMBEDDINGS: embeddings,
                 }
             )
 
