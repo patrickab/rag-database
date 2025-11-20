@@ -10,8 +10,10 @@ def main() -> None:
     """Main function to demonstrate RAG Database functionality."""
 
     ### Simple embedding demo
-    test_text = "This is a test document for embedding."
+    # Uses a configurable default model - expects installation of Ollama - modify rag_config.py to use eg OpenAI or Gemini
     embedding_model = EmbeddingModel()
+    test_text = "This is a test document for embedding."
+
     embedding = embedding_model.single_embed(test_text)
     print("Embedding shape:", embedding.shape)
     print("Embedding vector:", embedding)
