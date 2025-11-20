@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import json
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import numpy as np
 from openai import AsyncOpenAI, OpenAI
 import polars as pl
@@ -70,7 +71,26 @@ class EmbeddingModel:
             self.openai_sync_client = OpenAI(api_key=OPENAI_API_KEY)
             self.openai_async_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-    def chunk_texts(self, texts: list[str]) -> list[list[str]]:
+    def chunk_text_tokenaware(self, texts: list[str]) -> list[list[str]]:
+        """
+        Splits text using a token-aware, hierarchical, general-purpose strategy with contextual overlap.
+        """
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=MODEL_CONFIG[self.model]["max_tokens"],
+            chunk_overlap=200, # Common value, can be tuned.
+            length_function=self.length_function, # Tokenizer-based length function.
+            separators=["\n\n", "\n", " ", ""], # Hierarchical separators. Will try to split "\n\n" first, then "\n", then " ", etc.
+        )
+
+        all_chunked_texts = []
+        for text in texts:
+            # The splitter returns a list of strings (chunks) for the document.
+            chunks = text_splitter.split_text(text)
+            all_chunked_texts.append(chunks)
+
+        return all_chunked_texts
+
+    def chunk_texts_naive(self, texts: list[str]) -> list[list[str]]:
         """Split chunks (naive general purpose approach - split by max tokens, ignores semantics & overlap)."""
         chunked_texts = []
         for text in texts:
