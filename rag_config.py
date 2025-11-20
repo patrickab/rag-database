@@ -16,7 +16,7 @@ class DatabaseKeys:
     KEY_EMBEDDINGS = "embeddings"
     KEY_SIMILARITIES = "similarities"
 
-RAG_SCHEMA = pl.DataFrame(
+EMPTY_RAG_SCHEMA = pl.DataFrame(
     schema={
         DatabaseKeys.KEY_TITLE: pl.Utf8,
         DatabaseKeys.KEY_TXT: pl.Utf8,
@@ -47,7 +47,7 @@ MODEL_CONFIG = {
     }
 }
 
-DEFAULT_EMBEDDING_MODEL = "text-embedding-3-large"
+DEFAULT_EMBEDDING_MODEL = "embeddinggemma:300m"
 
 OPENAI_EMBEDDING_MODELS = ["text-embedding-3-large", "text-embedding-3-small"]
 GEMINI_EMBEDDING_MODELS = ["gemini-embedding-001"]

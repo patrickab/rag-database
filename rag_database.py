@@ -1,18 +1,22 @@
 from dataclasses import dataclass
 import json
+import os
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import numpy as np
+from ollama import Client as OllamaClient
 from openai import AsyncOpenAI, OpenAI
 import polars as pl
+import tqdm
 from transformers import AutoTokenizer
 
 from rag_config import (
     DEFAULT_EMBEDDING_MODEL,
+    EMPTY_RAG_SCHEMA,
     MODEL_CONFIG,
+    OLLAMA_EMBEDDING_MODELS,
     OPENAI_API_KEY,
     OPENAI_EMBEDDING_MODELS,
-    RAG_SCHEMA,
     TIMEOUT,
     DatabaseKeys,
 )
@@ -23,7 +27,7 @@ class RAGQuery:
     """RAG Query Structure"""
 
     query: str
-    k_queries: int
+    k_documents: int
 
 
 @dataclass
@@ -39,10 +43,11 @@ class RAGResponse:
         return json.dumps(
             {
                 DatabaseKeys.KEY_TITLE: self.titles,
-                DatabaseKeys.KEY_TXT: self.texts,
                 DatabaseKeys.KEY_SIMILARITIES: self.similarities,
+                DatabaseKeys.KEY_TXT: self.texts,
             },
             ensure_ascii=False,
+            indent=2,
         )
 
     def to_polars(self) -> pl.DataFrame:
@@ -61,11 +66,20 @@ class EmbeddingModel:
     def __init__(self, model:str=DEFAULT_EMBEDDING_MODEL) -> None:
         """Initialize the async embedding client and tokenizer."""
 
+        if model == "embeddinggemma:300m": # manage restricted access
+            from huggingface_hub import login
+
+            hf_token = os.getenv("HUGGINGFACE_API_KEY")
+            login(token=hf_token)
+
         self.model = model
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_CONFIG[self.model]["tokenizer"])
 
         def length_function(text:str) -> int: return len(self.tokenizer.encode(text))
         self.length_function = length_function
+
+        if self.model in OLLAMA_EMBEDDING_MODELS:
+            self.ollama_client = OllamaClient(host="http://localhost:11434")
 
         if self.model in OPENAI_EMBEDDING_MODELS:
             self.openai_sync_client = OpenAI(api_key=OPENAI_API_KEY)
@@ -108,17 +122,17 @@ class EmbeddingModel:
 
         return chunked_texts
 
-    def sync_embed(self, document: str) -> np.ndarray:
+    def single_embed(self, document: str) -> np.ndarray:
         """Embed a single text."""
 
         if document == "":
             return np.zeros(MODEL_CONFIG[self.model]["dimensions"])
 
-        chunked_texts = self.chunk_text([document])
+        chunked_texts = self.chunk_text_tokenaware([document])
 
-        embeddings_list: list[np.ndarray] = []
-        for chunk in chunked_texts:
-            if self.model in OPENAI_EMBEDDING_MODELS:
+        embeddings_list: list[np.ndarray] = []  
+        if self.model in OPENAI_EMBEDDING_MODELS:
+            for chunk in chunked_texts:
                 response = self.openai_sync_client.embeddings.create(
                     input=chunk,
                     model=self.model,
@@ -126,6 +140,15 @@ class EmbeddingModel:
                     timeout=TIMEOUT,
                 )
                 embedding = np.array(response.data[0].embedding)
+                embeddings_list.append(embedding)
+
+        if self.model in OLLAMA_EMBEDDING_MODELS:
+            for chunk in chunked_texts:
+                response = self.ollama_client.embed(
+                    model=self.model,
+                    input=chunk,
+                )
+                embedding = np.array(response.embeddings[0])
                 embeddings_list.append(embedding)
 
         aggregated_embedding = np.mean(embeddings_list, axis=0)
@@ -173,22 +196,23 @@ class VectorDB:
     Supports initialization with a stored Polars DataFrame to avoid rebuilding the DB. 
     """
 
-    def __init__(self, dataframe: pl.DataFrame) -> None:
-        if dataframe.schema == RAG_SCHEMA.schema:
-            self.database = dataframe
+    def __init__(self, database: pl.DataFrame=EMPTY_RAG_SCHEMA) -> None:
+        """Defaults to empty EMPTY_RAG_SCHEMA but can be initialized with existing dataframe."""
+        if database.schema == EMPTY_RAG_SCHEMA.schema:
+            self.database = database
         else:
             error_msg = (
-                f"Dataframe does not match the required schema: {RAG_SCHEMA.schema}"
+                f"Dataframe does not match the required schema: {EMPTY_RAG_SCHEMA.schema}"
             )
             raise ValueError(error_msg)
 
-    def similarity_search(self, query_vector: np.ndarray, k_queries: int = 20) -> RAGResponse:
+    def similarity_search(self, query_embedding: np.ndarray, k_documents: int = 20) -> RAGResponse:
         """
         Search for similar vectors in the database using cosine similarity.
 
         Parameters:
-            query_vector (np.ndarray): Query vector of shape (embedding_dim,)
-            k_queries (int): Number of top similarity results to return.
+            query_embedding (np.ndarray): Query vector of shape (embedding_dim,)
+            k_documents (int): Number of top similarity results to return.
 
         Returns:
             RAGResponse
@@ -197,13 +221,13 @@ class VectorDB:
         db_vectors = np.stack(self.database[DatabaseKeys.KEY_EMBEDDINGS].to_list())
 
         # Compute cosine similarity
-        dot_product = np.dot(db_vectors, query_vector)
+        dot_product = np.dot(db_vectors, query_embedding)
         db_norms = np.linalg.norm(db_vectors, axis=1)
-        query_norm = np.linalg.norm(query_vector)
+        query_norm = np.linalg.norm(query_embedding)
         cosine_similarities = dot_product / (db_norms * query_norm)
 
         # Get top-k indices
-        top_indices = np.argsort(cosine_similarities)[-k_queries:][::-1]
+        top_indices = np.argsort(cosine_similarities)[-k_documents:][::-1]
         df_top_k = self.database[top_indices]
 
         return RAGResponse(
@@ -216,11 +240,46 @@ class VectorDB:
 class RagDatabase:
     """Database for Retrieval Augmented Generation (RAG)"""
 
-    def __init__(self, vector_db: VectorDB, model:str=DEFAULT_EMBEDDING_MODEL) -> None:
+    def __init__(self, database: pl.DataFrame=EMPTY_RAG_SCHEMA, model:str=DEFAULT_EMBEDDING_MODEL) -> None:
+        """
+        Initialize RAG Database with embedding model and vector DB.
+        Can be initialized with existing dataframe to avoid rebuilding the DB.
+        Defaults to empty EMPTY_RAG_SCHEMA if no dataframe is provided.
+        """
         self.embedding_model = EmbeddingModel(model=model)
-        self.vector_db = vector_db
+        self.vector_db = VectorDB(database=database)
 
-    async def rag_process_query(self, rag_query: RAGQuery) -> RAGResponse:
+    def rag_process_query(self, rag_query: RAGQuery) -> RAGResponse:
         """Process RAG query and return relevant results"""
-        query_embedding = await self.embedding_model.embed(rag_query.query)
-        return self.vector_db.similarity_search(query_embedding, rag_query.k_queries)
+        query_embedding = self.embedding_model.single_embed(rag_query.query)
+        return self.vector_db.similarity_search(query_embedding, rag_query.k_documents)
+
+    def add_documents(self, titles: str|list[str], texts: str|list[str]) -> None:
+        """Add documents to the RAG database."""
+
+        if self.embedding_model.model in OPENAI_EMBEDDING_MODELS:
+            embeddings = self.embedding_model.embed_batch(texts)
+
+            new_entries = pl.DataFrame(
+                {
+                    DatabaseKeys.KEY_TITLE: titles,
+                    DatabaseKeys.KEY_TXT: texts,
+                    DatabaseKeys.KEY_EMBEDDINGS: [emb.tolist() for emb in embeddings],
+                }
+            )
+
+        if self.embedding_model.model in OLLAMA_EMBEDDING_MODELS:
+
+            embeddings = [
+                self.embedding_model.single_embed(text) for text in tqdm.tqdm(texts)
+            ]
+
+            new_entries = pl.DataFrame(
+                {
+                    DatabaseKeys.KEY_TITLE: titles,
+                    DatabaseKeys.KEY_TXT: texts,
+                    DatabaseKeys.KEY_EMBEDDINGS: [emb.tolist() for emb in embeddings],
+                }
+            )
+
+        self.vector_db.database = pl.concat([self.vector_db.database, new_entries])
