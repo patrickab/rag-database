@@ -13,8 +13,8 @@ import polars as pl
 import tqdm
 from transformers import AutoTokenizer
 
-from logger import get_logger
-from rag_database.rag_config import (
+from .._logger import get_logger
+from .rag_config import (
     CHUNKING_OVERLAP,
     DEFAULT_EMBEDDING_MODEL,
     EMPTY_RAG_SCHEMA,

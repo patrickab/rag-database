@@ -7,6 +7,7 @@ dependencies = [
     "langchain-text-splitters>=1.0.0",
     "ollama>=0.6.0",
     "polars>=1.32.3",
+    "rich>=14.2.0",
     "transformers>=4.57.1",
     "numpy>=2.3.2",
     "openai>=1.101.0"
