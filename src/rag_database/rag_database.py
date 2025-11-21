@@ -240,10 +240,8 @@ class VectorDB:
         if database.schema == EMPTY_RAG_SCHEMA.schema:
             self.database = database
         else:
-            error_msg = (
-                f"Dataframe does not match the required schema: {EMPTY_RAG_SCHEMA.schema}"
-            )
-            raise ValueError(error_msg)
+            logger.error("RAG Database: Provided database does not match EMPTY_RAG_SCHEMA schema.")
+            raise
 
     def similarity_search(self, query_embedding: np.ndarray, k_documents: int = 20) -> RAGResponse:
         """
@@ -286,8 +284,8 @@ class RagDatabase:
         Defaults to empty EMPTY_RAG_SCHEMA if no dataframe is provided.
         """
         try:
-            self.embedding_model = EmbeddingModel(model=model)
-            self.vector_db = VectorDB(database=database)
+            self.embedding_model: EmbeddingModel = EmbeddingModel(model=model)
+            self.vector_db: VectorDB = VectorDB(database=database)
         except Exception:
             logger.error("RAG Database: Error initializing RagDatabase:")
             raise
