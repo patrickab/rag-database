@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import json
+import logging
 import os
 from typing import Optional
 
@@ -13,6 +14,7 @@ import polars as pl
 import tqdm
 from transformers import AutoTokenizer
 
+from logger import get_logger
 from rag_database.rag_config import (
     CHUNKING_OVERLAP,
     DEFAULT_EMBEDDING_MODEL,
@@ -27,6 +29,8 @@ from rag_database.rag_config import (
     DatabaseKeys,
 )
 
+logger = get_logger()
+
 
 @dataclass
 class RAGQuery:
@@ -34,7 +38,6 @@ class RAGQuery:
 
     query: str
     k_documents: int
-
 
 @dataclass
 class RAGResponse:
@@ -283,8 +286,12 @@ class RagDatabase:
         Can be initialized with existing dataframe to avoid rebuilding the DB.
         Defaults to empty EMPTY_RAG_SCHEMA if no dataframe is provided.
         """
-        self.embedding_model = EmbeddingModel(model=model)
-        self.vector_db = VectorDB(database=database)
+        try:
+            self.embedding_model = EmbeddingModel(model=model)
+            self.vector_db = VectorDB(database=database)
+        except Exception:
+            logger.error("RAG Database: Error initializing RagDatabase:")
+            raise
 
     def is_document_in_database(self, title: str) -> bool:
         """Check if a document with the given title exists in the database."""
@@ -292,11 +299,19 @@ class RagDatabase:
 
     def rag_process_query(self, rag_query: RAGQuery) -> RAGResponse:
         """Process RAG query and return relevant results"""
-        query_embedding = self.embedding_model.single_embed(rag_query.query, task_type="RETRIEVAL_QUERY")
+
+        try:
+            query_embedding = self.embedding_model.single_embed(rag_query.query, task_type="RETRIEVAL_QUERY")
+        except Exception:
+            logger.error("RAG Database: Error embedding query:")
+            raise
+
         return self.vector_db.similarity_search(query_embedding, rag_query.k_documents)
 
     def add_documents(self, titles: str|list[str], texts: str|list[str]) -> None:
         """Add documents to the RAG database."""
+
+        logger.info(f"RAG Database: Adding {len(texts)} documents to RAG Database using model {self.embedding_model.model}.")
 
         try:
             texts_to_embed = []
@@ -310,24 +325,26 @@ class RagDatabase:
                         texts_to_embed.append(text)
                         self.vector_db.database = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) != title)
 
+            logger.info(f"RAG Database: Embedding {len(texts_to_embed)} new/updated documents.")
+
             if self.embedding_model.model in OPENAI_EMBEDDING_MODELS:
                 embeddings = self.embedding_model.embed_batch(texts_to_embed)
 
                 new_entries = pl.DataFrame(
                     {
                         DatabaseKeys.KEY_TITLE: titles,
-                        DatabaseKeys.KEY_TXT: texts,
+                        DatabaseKeys.KEY_TXT: texts_to_embed,
                         DatabaseKeys.KEY_EMBEDDINGS: embeddings,
                     }
                 )
 
             if self.embedding_model.model in GEMINI_EMBEDDING_MODELS:
-                embeddings = self.embedding_model.embed_batch(texts, task_type="RETRIEVAL_DOCUMENT")
+                embeddings = self.embedding_model.embed_batch(texts_to_embed, task_type="RETRIEVAL_DOCUMENT")
 
                 new_entries = pl.DataFrame(
                     {
                         DatabaseKeys.KEY_TITLE: titles,
-                        DatabaseKeys.KEY_TXT: texts,
+                        DatabaseKeys.KEY_TXT: texts_to_embed,
                         DatabaseKeys.KEY_EMBEDDINGS: embeddings,
                     }
                 )
@@ -335,19 +352,21 @@ class RagDatabase:
             if self.embedding_model.model in OLLAMA_EMBEDDING_MODELS:
 
                 embeddings = [
-                    self.embedding_model.single_embed(text) for text in tqdm.tqdm(texts)
+                    self.embedding_model.single_embed(text) for text in tqdm.tqdm(texts_to_embed)
                 ]
 
                 new_entries = pl.DataFrame(
                     {
                         DatabaseKeys.KEY_TITLE: titles,
-                        DatabaseKeys.KEY_TXT: texts,
+                        DatabaseKeys.KEY_TXT: texts_to_embed,
                         DatabaseKeys.KEY_EMBEDDINGS: embeddings,
                     }
                 )
 
             self.vector_db.database = pl.concat([self.vector_db.database, new_entries])
 
-        except Exception as e:
-            print(f"Error adding documents: {e}")
-            raise e
+        except Exception:
+            logger.error("RAG Database: Error adding documents:")
+            raise
+
+        logger.info("RAG Database: Documents added successfully.")
