@@ -6,6 +6,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 TIMEOUT = 20
+CHUNKING_OVERLAP = 200
 
 MODEL_CONFIG = {
     # All currently tested/supported embedding models - can be easily extended with any Ollama models

@@ -14,6 +14,7 @@ import tqdm
 from transformers import AutoTokenizer
 
 from rag_database.rag_config import (
+    CHUNKING_OVERLAP,
     DEFAULT_EMBEDDING_MODEL,
     EMPTY_RAG_SCHEMA,
     GEMINI_API_KEY,
@@ -80,9 +81,6 @@ class EmbeddingModel:
         self.model = model
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_CONFIG[self.model]["tokenizer"])
 
-        def length_function(text:str) -> int: return len(self.tokenizer.encode(text))
-        self.length_function = length_function
-
         if self.model in OLLAMA_EMBEDDING_MODELS:
             self.ollama_client = OllamaClient(host="http://localhost:11434")
 
@@ -97,9 +95,9 @@ class EmbeddingModel:
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=MODEL_CONFIG[self.model]["max_tokens"],
-            chunk_overlap=200, # Common value, can be tuned.
-            length_function=self.length_function, # Tokenizer-based length function.
-            separators=["\n\n", "\n", " "], # Hierarchical separators. Adjust to use-case, eg # ## ### for markdown articles.
+            chunk_overlap=CHUNKING_OVERLAP,
+            length_function=lambda text: len(self.tokenizer.encode(text)), # token-aware splitting
+            separators=["\n\n", "\n", " "], # hierarchical splitting - adjust as needed eg # ## ### for markdown articles
         )
 
         all_chunked_texts = []
