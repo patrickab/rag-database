@@ -286,6 +286,10 @@ class RagDatabase:
         self.embedding_model = EmbeddingModel(model=model)
         self.vector_db = VectorDB(database=database)
 
+    def is_document_in_database(self, title: str) -> bool:
+        """Check if a document with the given title exists in the database."""
+        return title in self.vector_db.database[DatabaseKeys.KEY_TITLE].to_list()
+
     def rag_process_query(self, rag_query: RAGQuery) -> RAGResponse:
         """Process RAG query and return relevant results"""
         query_embedding = self.embedding_model.single_embed(rag_query.query, task_type="RETRIEVAL_QUERY")
