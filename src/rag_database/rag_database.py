@@ -312,14 +312,17 @@ class RagDatabase:
 
         try:
             texts_to_embed = []
+            titles_to_embed = []
             for text,title in zip(texts, titles, strict=True):
                 if not self.is_document_in_database(title):
                     texts_to_embed.append(text)
+                    titles_to_embed.append(title)
                 else:
                     # Check if text has changed - if so, re-embed and update
                     existing_text = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) == title)[DatabaseKeys.KEY_TXT][0]
                     if existing_text != text:
                         texts_to_embed.append(text)
+                        titles_to_embed.append(title)
                         self.vector_db.database = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) != title)
 
             logger.info(f"RAG Database: Embedding {len(texts_to_embed)} new/updated documents.")
@@ -329,7 +332,7 @@ class RagDatabase:
 
                 new_entries = pl.DataFrame(
                     {
-                        DatabaseKeys.KEY_TITLE: titles,
+                        DatabaseKeys.KEY_TITLE:titles_to_embed,
                         DatabaseKeys.KEY_TXT: texts_to_embed,
                         DatabaseKeys.KEY_EMBEDDINGS: embeddings,
                     }
@@ -340,7 +343,7 @@ class RagDatabase:
 
                 new_entries = pl.DataFrame(
                     {
-                        DatabaseKeys.KEY_TITLE: titles,
+                        DatabaseKeys.KEY_TITLE: titles_to_embed,
                         DatabaseKeys.KEY_TXT: texts_to_embed,
                         DatabaseKeys.KEY_EMBEDDINGS: embeddings,
                     }
@@ -354,7 +357,7 @@ class RagDatabase:
 
                 new_entries = pl.DataFrame(
                     {
-                        DatabaseKeys.KEY_TITLE: titles,
+                        DatabaseKeys.KEY_TITLE: titles_to_embed,
                         DatabaseKeys.KEY_TXT: texts_to_embed,
                         DatabaseKeys.KEY_EMBEDDINGS: embeddings,
                     }
