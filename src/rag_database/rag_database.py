@@ -298,8 +298,19 @@ class RagDatabase:
     def add_documents(self, titles: str|list[str], texts: str|list[str]) -> None:
         """Add documents to the RAG database."""
 
+        texts_to_embed = []
+        for text,title in zip(texts, titles, strict=True):
+            if not self.is_document_in_database(title):
+                texts_to_embed.append(text)
+            else:
+                # Check if text has changed - if so, re-embed and update
+                existing_text = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) == title)[DatabaseKeys.KEY_TXT][0]
+                if existing_text != text:
+                    texts_to_embed.append(text)
+                    self.vector_db.database = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) != title)
+
         if self.embedding_model.model in OPENAI_EMBEDDING_MODELS:
-            embeddings = self.embedding_model.embed_batch(texts)
+            embeddings = self.embedding_model.embed_batch(texts_to_embed)
 
             new_entries = pl.DataFrame(
                 {
