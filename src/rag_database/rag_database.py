@@ -298,51 +298,56 @@ class RagDatabase:
     def add_documents(self, titles: str|list[str], texts: str|list[str]) -> None:
         """Add documents to the RAG database."""
 
-        texts_to_embed = []
-        for text,title in zip(texts, titles, strict=True):
-            if not self.is_document_in_database(title):
-                texts_to_embed.append(text)
-            else:
-                # Check if text has changed - if so, re-embed and update
-                existing_text = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) == title)[DatabaseKeys.KEY_TXT][0]
-                if existing_text != text:
+        try:
+            texts_to_embed = []
+            for text,title in zip(texts, titles, strict=True):
+                if not self.is_document_in_database(title):
                     texts_to_embed.append(text)
-                    self.vector_db.database = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) != title)
+                else:
+                    # Check if text has changed - if so, re-embed and update
+                    existing_text = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) == title)[DatabaseKeys.KEY_TXT][0]
+                    if existing_text != text:
+                        texts_to_embed.append(text)
+                        self.vector_db.database = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) != title)
 
-        if self.embedding_model.model in OPENAI_EMBEDDING_MODELS:
-            embeddings = self.embedding_model.embed_batch(texts_to_embed)
+            if self.embedding_model.model in OPENAI_EMBEDDING_MODELS:
+                embeddings = self.embedding_model.embed_batch(texts_to_embed)
 
-            new_entries = pl.DataFrame(
-                {
-                    DatabaseKeys.KEY_TITLE: titles,
-                    DatabaseKeys.KEY_TXT: texts,
-                    DatabaseKeys.KEY_EMBEDDINGS: embeddings,
-                }
-            )
+                new_entries = pl.DataFrame(
+                    {
+                        DatabaseKeys.KEY_TITLE: titles,
+                        DatabaseKeys.KEY_TXT: texts,
+                        DatabaseKeys.KEY_EMBEDDINGS: embeddings,
+                    }
+                )
 
-        if self.embedding_model.model in GEMINI_EMBEDDING_MODELS:
-            embeddings = self.embedding_model.embed_batch(texts, task_type="RETRIEVAL_DOCUMENT")
+            if self.embedding_model.model in GEMINI_EMBEDDING_MODELS:
+                embeddings = self.embedding_model.embed_batch(texts, task_type="RETRIEVAL_DOCUMENT")
 
-            new_entries = pl.DataFrame(
-                {
-                    DatabaseKeys.KEY_TITLE: titles,
-                    DatabaseKeys.KEY_TXT: texts,
-                    DatabaseKeys.KEY_EMBEDDINGS: embeddings,
-                }
-            )
+                new_entries = pl.DataFrame(
+                    {
+                        DatabaseKeys.KEY_TITLE: titles,
+                        DatabaseKeys.KEY_TXT: texts,
+                        DatabaseKeys.KEY_EMBEDDINGS: embeddings,
+                    }
+                )
 
-        if self.embedding_model.model in OLLAMA_EMBEDDING_MODELS:
+            if self.embedding_model.model in OLLAMA_EMBEDDING_MODELS:
 
-            embeddings = [
-                self.embedding_model.single_embed(text) for text in tqdm.tqdm(texts)
-            ]
+                embeddings = [
+                    self.embedding_model.single_embed(text) for text in tqdm.tqdm(texts)
+                ]
 
-            new_entries = pl.DataFrame(
-                {
-                    DatabaseKeys.KEY_TITLE: titles,
-                    DatabaseKeys.KEY_TXT: texts,
-                    DatabaseKeys.KEY_EMBEDDINGS: embeddings,
-                }
-            )
+                new_entries = pl.DataFrame(
+                    {
+                        DatabaseKeys.KEY_TITLE: titles,
+                        DatabaseKeys.KEY_TXT: texts,
+                        DatabaseKeys.KEY_EMBEDDINGS: embeddings,
+                    }
+                )
 
-        self.vector_db.database = pl.concat([self.vector_db.database, new_entries])
+            self.vector_db.database = pl.concat([self.vector_db.database, new_entries])
+
+        except Exception as e:
+            print(f"Error adding documents: {e}")
+            raise e
