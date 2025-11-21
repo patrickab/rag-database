@@ -308,7 +308,7 @@ class RagDatabase:
     def add_documents(self, titles: str|list[str], texts: str|list[str]) -> None:
         """Add documents to the RAG database."""
 
-        logger.info(f"RAG Database: Adding {len(texts)} documents to RAG Database using model {self.embedding_model.model}.")
+        logger.info(f"RAG Database: Probing {len(texts)} documents with existing RAG Database using model {self.embedding_model.model}.")
 
         try:
             texts_to_embed = []
@@ -325,7 +325,7 @@ class RagDatabase:
                         titles_to_embed.append(title)
                         self.vector_db.database = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) != title)
 
-            logger.info(f"RAG Database: Embedding {len(texts_to_embed)} new/updated documents.")
+            logger.info(f"RAG Database: Found {len(texts_to_embed)} new documents. Proceeding to embed...")
 
             if self.embedding_model.model in OPENAI_EMBEDDING_MODELS:
                 embeddings = self.embedding_model.embed_batch(texts_to_embed)
