@@ -3,7 +3,7 @@ import os
 
 import polars as pl
 
-from rag_database import EmbeddingModel, RagDatabase, RAGQuery
+from rag_database.rag_database import EmbeddingModel, RagDatabase, RAGQuery
 
 
 def main() -> None:

@@ -13,7 +13,7 @@ import polars as pl
 import tqdm
 from transformers import AutoTokenizer
 
-from rag_config import (
+from rag_database.rag_config import (
     DEFAULT_EMBEDDING_MODEL,
     EMPTY_RAG_SCHEMA,
     GEMINI_API_KEY,
