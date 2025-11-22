@@ -16,8 +16,6 @@ from transformers import AutoTokenizer
 from ._logger import get_logger
 from .rag_config import (
     CHUNKING_OVERLAP,
-    DEFAULT_EMBEDDING_MODEL,
-    EMPTY_RAG_SCHEMA,
     GEMINI_API_KEY,
     GEMINI_EMBEDDING_MODELS,
     MODEL_CONFIG,
@@ -71,7 +69,7 @@ class RAGResponse:
 class EmbeddingModel:
     """Wrapper for the OpenAI Embedding Model"""
 
-    def __init__(self, model:str=DEFAULT_EMBEDDING_MODEL) -> None:
+    def __init__(self, model:str) -> None:
         """Initialize the async embedding client and tokenizer."""
 
         if model == "embeddinggemma:300m": # manage restricted access
@@ -235,13 +233,8 @@ class VectorDB:
     Supports initialization with a stored Polars DataFrame to avoid rebuilding the DB. 
     """
 
-    def __init__(self, database: pl.DataFrame=EMPTY_RAG_SCHEMA) -> None:
-        """Defaults to empty EMPTY_RAG_SCHEMA but can be initialized with existing dataframe."""
-        if database.schema == EMPTY_RAG_SCHEMA.schema:
-            self.database = database
-        else:
-            logger.error("RAG Database: Provided database does not match EMPTY_RAG_SCHEMA schema.")
-            raise
+    def __init__(self, database: pl.DataFrame) -> None:
+        self.database = database
 
     def similarity_search(self, query_embedding: np.ndarray, k_documents: int = 20) -> RAGResponse:
         """
@@ -277,7 +270,7 @@ class VectorDB:
 class RagDatabase:
     """Database for Retrieval Augmented Generation (RAG)"""
 
-    def __init__(self, database: pl.DataFrame=EMPTY_RAG_SCHEMA, model:str=DEFAULT_EMBEDDING_MODEL) -> None:
+    def __init__(self, database: pl.DataFrame, model:str) -> None:
         """
         Initialize RAG Database with embedding model and vector DB.
         Can be initialized with existing dataframe to avoid rebuilding the DB.
@@ -308,7 +301,8 @@ class RagDatabase:
     def add_documents(self, titles: str|list[str], texts: str|list[str]) -> None:
         """Add documents to the RAG database."""
 
-        logger.info(f"RAG Database: Probing {len(texts)} documents with existing RAG Database using model {self.embedding_model.model}.")
+        logger.info(f"RAG Database: Using embedding model {self.embedding_model.model}")
+        logger.info(f"RAG Database: Probing {len(texts)} documents")
 
         try:
             texts_to_embed = []

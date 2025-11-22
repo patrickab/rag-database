@@ -47,10 +47,12 @@ class DatabaseKeys:
     KEY_EMBEDDINGS = "embeddings"
     KEY_SIMILARITIES = "similarities"
 
-EMPTY_RAG_SCHEMA = pl.DataFrame(
-    schema={
-        DatabaseKeys.KEY_TITLE: pl.Utf8,
-        DatabaseKeys.KEY_TXT: pl.Utf8,
-        DatabaseKeys.KEY_EMBEDDINGS: pl.Array(pl.Float64, width=MODEL_CONFIG[DEFAULT_EMBEDDING_MODEL]["dimensions"]),
-    }
-)
+def empty_rag_schema(model: str) -> pl.DataFrame:
+    """Returns an empty Polars DataFrame with the RAG schema for a given model."""
+    return pl.DataFrame(
+        schema={
+            DatabaseKeys.KEY_TITLE: pl.Utf8,
+            DatabaseKeys.KEY_TXT: pl.Utf8,
+            DatabaseKeys.KEY_EMBEDDINGS: pl.Array(pl.Float64, width=MODEL_CONFIG[model]["dimensions"]),
+        }
+    )

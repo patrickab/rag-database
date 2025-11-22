@@ -3,15 +3,16 @@ import os
 
 import polars as pl
 
+from rag_database.rag_config import DEFAULT_EMBEDDING_MODEL, empty_rag_schema
 from rag_database.rag_database import EmbeddingModel, RagDatabase, RAGQuery
 
 
 def main() -> None:
     """Main function to demonstrate RAG Database functionality."""
 
-    ### Simple embedding demo
+    ### Simple embedding demo - Make sure this works before proceeding to RAG DB
     # Uses a configurable default model - expects installation of Ollama - modify rag_config.py to use eg OpenAI or Gemini
-    embedding_model = EmbeddingModel()
+    embedding_model = EmbeddingModel(model=DEFAULT_EMBEDDING_MODEL)
     test_document = "This is a test document for embedding."
     test_query = "What is the meaning of life?"
 
@@ -22,7 +23,8 @@ def main() -> None:
 
     ### RAG Database demo
     # 1. Initialize Empty RAG Database
-    rag_db = RagDatabase()
+    empty_schema = empty_rag_schema(model=DEFAULT_EMBEDDING_MODEL)
+    rag_db = RagDatabase(database=empty_schema, model=DEFAULT_EMBEDDING_MODEL)
     documents = os.listdir("example_docs/")
 
     # 2. Load all documents into memory
@@ -48,7 +50,7 @@ def main() -> None:
 
     # 6. Load Vector DB from disk
     loaded_db = pl.read_parquet("rag_vector_db.parquet")
-    rag_db_loaded = RagDatabase(database=loaded_db)
+    rag_db_loaded = RagDatabase(database=loaded_db, model=DEFAULT_EMBEDDING_MODEL)
     print("Loaded RAG Database from disk with", rag_db_loaded.vector_db.database.height, "documents.")
 
 
