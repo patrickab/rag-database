@@ -3,56 +3,94 @@ import os
 
 import polars as pl
 
-from rag_database.rag_config import DEFAULT_EMBEDDING_MODEL, empty_rag_schema
+from rag_database.rag_config import DEFAULT_EMBEDDING_MODEL, MODEL_CONFIG
 from rag_database.rag_database import EmbeddingModel, RagDatabase, RAGQuery
 
 
 def main() -> None:
-    """Main function to demonstrate RAG Database functionality."""
+    """Demonstrate RAG Database functionality."""
 
-    ### Simple embedding demo - Make sure this works before proceeding to RAG DB
-    # Uses a configurable default model - expects installation of Ollama - modify rag_config.py to use eg OpenAI or Gemini
+    # ---------------------------------------------------------
+    # 1. Simple Embedding Demo (Manual Usage)
+    # ---------------------------------------------------------
+    print("--- Starting Manual Embedding Demo ---")
+    
+    # Initialize model
     embedding_model = EmbeddingModel(model=DEFAULT_EMBEDDING_MODEL)
+
     test_document = "This is a test document for embedding."
     test_query = "What is the meaning of life?"
 
-    # Gemini / Gemma models offer different task types that can improve performance - not needed for OpenAI / Ollama
-    document_embedding = embedding_model.single_embed(test_document, task_type="RETRIEVAL_DOCUMENT")
-    query_embedding = embedding_model.single_embed(test_query, task_type="RETRIEVAL_QUERY")
-    print(f"\n\nEmbedding shapes  -  Doc: {document_embedding.shape}  Query: {query_embedding.shape}")
+    print("Embedding Document (Default)...")
+    document_embedding = embedding_model.embed(texts=test_document)
+    query_embedding = embedding_model.embed(texts=test_query)
 
-    ### RAG Database demo
-    # 1. Initialize Empty RAG Database
-    empty_schema = empty_rag_schema(model=DEFAULT_EMBEDDING_MODEL)
-    rag_db = RagDatabase(database=empty_schema, model=DEFAULT_EMBEDDING_MODEL)
-    documents = os.listdir("example_docs/")
+    # Gemini/Gemma models support task-specific embeddings
+    # Any other model specific kwargs can be passed as needed
+    # -> leave empty for default behavior or customize to your models capabilities
+    kwargs_doc = {"task_type": "RETRIEVAL_DOCUMENT"}
+    kwargs_query = {"task_type": "RETRIEVAL_QUERY"}
 
-    # 2. Load all documents into memory
+    print("Embedding Document (Task: RETRIEVAL_DOCUMENT)...")
+    document_embedding = embedding_model.embed(texts=test_document,**kwargs_doc)
+
+    print("Embedding Query (Task: RETRIEVAL_QUERY)...")
+    query_embedding = embedding_model.embed(texts=test_query, **kwargs_query)
+
+    print(f"Embedding shapes -> Doc: {document_embedding.shape}  Query: {query_embedding.shape}")
+
+
+    # ---------------------------------------------------------
+    # 2. RAG Database Demo (Automated usage)
+    # ---------------------------------------------------------
+    print("\n--- Starting RAG Database Demo ---")
+
+    # Initialize RAG Database - you will need to set embedding dimensions for Database allocation - this is done for memory efficiency
+    rag_db = RagDatabase(model=DEFAULT_EMBEDDING_MODEL, embedding_dimensions=MODEL_CONFIG[DEFAULT_EMBEDDING_MODEL]["dimensions"])
+
+    # Load documents from disk
+    docs_dir = "example_docs/"
     texts = []
     titles = []
-    for doc in documents:
-        with open(f"example_docs/{doc}", "r") as f:
-            text = f.read()
-            texts.append(text)
-            titles.append(doc)
 
-    # 3. Add documents to RAG Database
+    if os.path.exists(docs_dir):
+        documents = os.listdir(docs_dir)
+        for doc in documents:
+            path = os.path.join(docs_dir, doc)
+            if os.path.isfile(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    texts.append(f.read())
+                    titles.append(doc)
+
+    # Add documents (retrieval) vs (Gemini/Gemma specific)
     rag_db.add_documents(titles=titles, texts=texts)
+    rag_db.add_documents(titles=titles, texts=texts, task_type="RETRIEVAL_DOCUMENT")
 
-    # 4. Process a RAG Query
-    rag_query = RAGQuery(query="What is the memory wall & how does it relate to Moores law?", k_documents=5)
+    # Process a RAG Query
+    rag_query = RAGQuery(
+        query="What is the memory wall & how does it relate to Moores law?", 
+        k_documents=5
+    )
+
+    # Query documents (default) vs (Gemini/Gemma specific)
     rag_response = rag_db.rag_process_query(rag_query)
-    print(f"\n\nRAG Query: {rag_query.query}\nRAG Response JSON:")
+    rag_response = rag_db.rag_process_query(rag_query, task_type="RETRIEVAL_QUERY")
+
+    print(f"\nQuery: {rag_query.query}")
+    print("RAG Response JSON:")
     print(json.dumps(json.loads(rag_response.to_json()), indent=2))
 
-    # 5. Store Vector DB to disk
-    rag_db.vector_db.database.write_parquet("rag_vector_db.parquet")
+    # ---------------------------------------------------------
+    # 3. Store/load Demo
+    # ---------------------------------------------------------
+    parquet_file = "rag_vector_db.parquet"
 
-    # 6. Load Vector DB from disk
-    loaded_db = pl.read_parquet("rag_vector_db.parquet")
-    rag_db_loaded = RagDatabase(database=loaded_db, model=DEFAULT_EMBEDDING_MODEL)
-    print("Loaded RAG Database from disk with", rag_db_loaded.vector_db.database.height, "documents.")
+    rag_db.vector_db.database.write_parquet(parquet_file)                           # Store Vector DB to disk
+    loaded_db = pl.read_parquet(parquet_file)                                       # Load Vector DB from disk
+    rag_db_loaded = RagDatabase(model=DEFAULT_EMBEDDING_MODEL, database=loaded_db)  # Re-initialize RAG with the loaded dataframe
 
+    count = rag_db_loaded.vector_db.database.height
+    print(f"Successfully loaded RAG Database from disk with {count} documents.")
 
 if __name__ == "__main__":
     main()
