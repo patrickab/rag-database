@@ -1,14 +1,11 @@
 from dataclasses import dataclass
 import json
 import os
-from typing import Optional
+from typing import List, Optional, Union
 
-from google.genai import Client as GeminiClient
-from google.genai import types
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from llm_baseclient.client import LLMClient
 import numpy as np
-from ollama import Client as OllamaClient
-from openai import OpenAI as OpenAI
 import polars as pl
 import tqdm
 from transformers import AutoTokenizer
@@ -16,11 +13,9 @@ from transformers import AutoTokenizer
 from ._logger import get_logger
 from .rag_config import (
     CHUNKING_OVERLAP,
-    GEMINI_API_KEY,
     GEMINI_EMBEDDING_MODELS,
     MODEL_CONFIG,
     OLLAMA_EMBEDDING_MODELS,
-    OPENAI_API_KEY,
     OPENAI_EMBEDDING_MODELS,
     TIMEOUT,
     DatabaseKeys,
@@ -67,28 +62,20 @@ class RAGResponse:
         )
 
 class EmbeddingModel:
-    """Wrapper for the OpenAI Embedding Model"""
+    """Wrapper using litellm's client for unified embedding calls."""
 
-    def __init__(self, model:str) -> None:
-        """Initialize the async embedding client and tokenizer."""
+    def __init__(self, model: str) -> None:
+        """Initialize the tokenizer and the unified LLM client."""
 
-        if model == "embeddinggemma:300m": # manage restricted access
+        # Handle restricted access for specific models (e.g., Gemma)
+        if model == "embeddinggemma:300m": 
             from huggingface_hub import login
-
             hf_token = os.getenv("HUGGINGFACE_API_KEY")
             login(token=hf_token)
 
         self.model = model
         self.tokenizer = AutoTokenizer.from_pretrained(MODEL_CONFIG[self.model]["tokenizer"])
-
-        if self.model in OLLAMA_EMBEDDING_MODELS:
-            self.ollama_client = OllamaClient(host="http://localhost:11434")
-
-        if self.model in OPENAI_EMBEDDING_MODELS:
-            self.openai_sync_client = OpenAI(api_key=OPENAI_API_KEY)
-
-        if self.model in GEMINI_EMBEDDING_MODELS:
-            self.gemini_sync_client = GeminiClient(api_key=GEMINI_API_KEY)
+        self.llm_client = LLMClient()
 
     def chunk_texts_tokenaware(self, texts: list[str]) -> list[list[str]]:
         """Splits text using a token-aware, hierarchical, general-purpose strategy with contextual overlap."""
@@ -104,6 +91,8 @@ class EmbeddingModel:
         for text in texts:
             # The splitter returns a list of strings (chunks) for the document.
             chunks = text_splitter.split_text(text)
+            if len(chunks) > 1:
+                logger.debug(f"RAG Database: Text split into {len(chunks)} chunks.")
             all_chunked_texts.append(chunks)
 
         return all_chunked_texts
@@ -127,104 +116,61 @@ class EmbeddingModel:
 
         return chunked_texts
 
-    def single_embed(self, document: str, task_type: Optional[str]=None) -> np.ndarray:
-        """Embed a single text."""
-
-        if document == "":
-            return np.zeros(MODEL_CONFIG[self.model]["dimensions"])
-
-        chunked_texts = self.chunk_texts_tokenaware([document])
-
-        embeddings_list: list[np.ndarray] = []  
-
-        if self.model in GEMINI_EMBEDDING_MODELS:
-            config = types.EmbedContentConfig(
-                output_dimensionality=MODEL_CONFIG[self.model]["dimensions"],
-                task_type=task_type,
-            )
-
-            response = self.gemini_sync_client.models.embed_content(
-                model=self.model,
-                contents=chunked_texts,
-                config=config
-            )
-            embeddings = [np.array(e.values) for e in response.embeddings]
-            embeddings_list.extend(embeddings)
-
-        if self.model in OPENAI_EMBEDDING_MODELS:
-            for chunk in chunked_texts:
-                response = self.openai_sync_client.embeddings.create(
-                    input=chunk,
-                    model=self.model,
-                    dimensions=MODEL_CONFIG[self.model]["dimensions"],
-                    timeout=TIMEOUT,
-                )
-                embedding = np.array(response.data[0].embedding)
-                embeddings_list.append(embedding)
-
-        if self.model in OLLAMA_EMBEDDING_MODELS:
-            for chunk in chunked_texts:
-                response = self.ollama_client.embed(
-                    model=self.model,
-                    input=chunk,
-                    dimensions=MODEL_CONFIG[self.model]["dimensions"],
-                )
-                embedding = np.array(response.embeddings[0])
-                embeddings_list.append(embedding)
-
-        aggregated_embedding = np.mean(embeddings_list, axis=0)
-
-        return aggregated_embedding
-
-    def embed_batch(self, texts: list[str], task_type: Optional[str]) -> np.ndarray:
+    def embed(self, texts: Union[str, List[str]], task_type: Optional[str] = None) -> Union[np.ndarray, List[np.ndarray]]:
         """
-        Embed many texts in one API call.
-        Calculates document-level embeddings. Considers chunking.
-        Chapter-wise embeddings can be considered for pdf's articles etc.
-        """
-        chunked_texts = self.chunk_texts_tokenaware(texts)
+        Unified embedding method for single strings or batches.
+        Handles chunking, API calls via LLMClient, and aggregating (mean pooling) chunks back to documents.
 
-        # 1. Flatten Chunks & Store Mapping
+        API Models:
+            - Assumes API key in system environment variable.
+        Local Models:
+            - CPU inference: Assumes Ollama is installed configured & model is downloaded.
+            - GPU inference: Assumes vLLM compatible local model is downloaded and configured.
+        """
+        # 1. Standardize Input
+        is_single_input = isinstance(texts, str)
+        input_texts = [texts] if is_single_input else texts
+
+        if not input_texts or input_texts == [""]:
+            empty_vec = np.zeros(MODEL_CONFIG[self.model]["dimensions"])
+            return empty_vec if is_single_input else [empty_vec]
+
+        # 2. Chunking
+        # Returns list of lists: [[doc1_chunk1, doc1_chunk2], [doc2_chunk1]]
+        chunked_texts = self.chunk_texts_tokenaware(input_texts)
+
+        # 3. Flatten for API efficiency
         lengths = [len(chunks) for chunks in chunked_texts]
-        flattend_chunked_texts = [chunk for chunks in chunked_texts for chunk in chunks]
+        flattened_chunks = [chunk for chunks in chunked_texts for chunk in chunks]
 
-        if self.model in OPENAI_EMBEDDING_MODELS:
-
-            # 2. Batch Embed Flattened Chunks
-            response = self.openai_sync_client.embeddings.create(
-                input=flattend_chunked_texts,
+        # 4. Call Unified Client
+        try: # LLMClient handles routing (Ollama / vLLM / OpenAI / Gemini / Anthropic / Bedrock) based on model string
+            response = self.llm_client.get_embedding(
                 model=self.model,
+                input_text=flattened_chunks,
                 dimensions=MODEL_CONFIG[self.model]["dimensions"],
-                timeout=TIMEOUT,
+                task_type=task_type, # Used by Gemini
+                timeout=TIMEOUT
             )
+        except Exception as e:
+            logger.error(f"Embedding failed: {e}")
+            raise e
 
-            embeddings = np.array([d.embedding for d in response.data])
+        # 5. Extract Embeddings
+        raw_embeddings = np.array([item['embedding'] for item in response['data']])
 
-        if self.model in GEMINI_EMBEDDING_MODELS:
+        # 6. Reconstruct Structure (Split flattened list back into document groups)
+        grouped_embeddings = np.split(raw_embeddings, np.cumsum(lengths)[:-1]) if len(lengths) > 1 else [raw_embeddings]
 
-            config = types.EmbedContentConfig(
-                output_dimensionality=MODEL_CONFIG[self.model]["dimensions"],
-                task_type=task_type)
-
-            # 2. Batch Embed Flattened Chunks
-            response = self.gemini_sync_client.models.embed_content(
-                model=self.model,
-                contents=flattend_chunked_texts,
-                config=config
-            )
-
-            embeddings = np.array([e.values for e in response.embeddings])
-
-        # NOTE: Ollama batch embedding not supported yet.
-
-        # 3. Reconstruct Structure
-        embeddings = np.split(embeddings, np.cumsum(lengths)[:-1])
-
-        # 4. Aggregate Embeddings per Text
+        # 7. Aggregate (Mean Pooling) per document
         aggregated_embeddings = [
-            np.mean(emb_list, axis=0) for emb_list in embeddings
+            np.mean(group, axis=0) for group in grouped_embeddings
         ]
-        return aggregated_embeddings
+
+        if is_single_input:
+            return aggregated_embeddings[0]
+
+        return np.array(aggregated_embeddings)
 
 
 class VectorDB:
