@@ -3,6 +3,7 @@ import os
 
 import polars as pl
 
+from rag_database._logger import get_logger
 from rag_database.rag_config import DEFAULT_EMBEDDING_MODEL, MODEL_CONFIG
 from rag_database.rag_database import EmbeddingModel, RagDatabase, RAGQuery
 
@@ -13,7 +14,8 @@ def main() -> None:
     # ---------------------------------------------------------
     # 1. Simple Embedding Demo (Manual Usage)
     # ---------------------------------------------------------
-    print("--- Starting Manual Embedding Demo ---")
+    logger = get_logger()
+    logger.info("--- Starting Manual Embedding Demo ---")
     
     # Initialize model
     embedding_model = EmbeddingModel(model=DEFAULT_EMBEDDING_MODEL)
@@ -21,7 +23,7 @@ def main() -> None:
     test_document = "This is a test document for embedding."
     test_query = "What is the meaning of life?"
 
-    print("Embedding Document (Default)...")
+    logger.info("Embedding Demo: Embedding Document (Default)...")
     document_embedding = embedding_model.embed(texts=test_document)
     query_embedding = embedding_model.embed(texts=test_query)
 
@@ -31,19 +33,17 @@ def main() -> None:
     kwargs_doc = {"task_type": "RETRIEVAL_DOCUMENT"}
     kwargs_query = {"task_type": "RETRIEVAL_QUERY"}
 
-    print("Embedding Document (Task: RETRIEVAL_DOCUMENT)...")
-    document_embedding = embedding_model.embed(texts=test_document,**kwargs_doc)
+    logger.info("Embedding Demo: Embedding Document (Task: RETRIEVAL_DOCUMENT)...")
+    document_embedding = embedding_model.embed(texts=test_document,**kwargs_doc) # noqa
 
-    print("Embedding Query (Task: RETRIEVAL_QUERY)...")
-    query_embedding = embedding_model.embed(texts=test_query, **kwargs_query)
-
-    print(f"Embedding shapes -> Doc: {document_embedding.shape}  Query: {query_embedding.shape}")
-
+    logger.info("Embedding Demo: Embedding Query (Task: RETRIEVAL_QUERY)...")
+    query_embedding = embedding_model.embed(texts=test_query, **kwargs_query) # noqa
+    logger.info("Embedding Demo: Completed.\n")
 
     # ---------------------------------------------------------
     # 2. RAG Database Demo (Automated usage)
     # ---------------------------------------------------------
-    print("\n--- Starting RAG Database Demo ---")
+    logger.info("\n--- Starting RAG Database Demo ---")
 
     # Initialize RAG Database - you will need to set embedding dimensions for Database allocation - this is done for memory efficiency
     rag_db = RagDatabase(model=DEFAULT_EMBEDDING_MODEL, embedding_dimensions=MODEL_CONFIG[DEFAULT_EMBEDDING_MODEL]["dimensions"])
@@ -76,9 +76,11 @@ def main() -> None:
     rag_response = rag_db.rag_process_query(rag_query)
     rag_response = rag_db.rag_process_query(rag_query, task_type="RETRIEVAL_QUERY")
 
-    print(f"\nQuery: {rag_query.query}")
-    print("RAG Response JSON:")
-    print(json.dumps(json.loads(rag_response.to_json()), indent=2))
+    logger.info(f"RAG Demo: Query  -  {rag_query.query}")
+    logger.info("RAG Demo: Response:")
+    response_data = json.loads(rag_response.to_json())
+    logger.info(f"RAG Demo: Titles {json.dumps(response_data["title"], indent=4)}")
+    logger.info(f"RAG Demo: Similarities {json.dumps(response_data["similarities"], indent=4)}")
 
     # ---------------------------------------------------------
     # 3. Store/load Demo
@@ -90,7 +92,7 @@ def main() -> None:
     rag_db_loaded = RagDatabase(model=DEFAULT_EMBEDDING_MODEL, database=loaded_db)  # Re-initialize RAG with the loaded dataframe
 
     count = rag_db_loaded.vector_db.database.height
-    print(f"Successfully loaded RAG Database from disk with {count} documents.")
+    logger.info(f"Successfully loaded RAG Database from disk with {count} documents.")
 
 if __name__ == "__main__":
     main()
