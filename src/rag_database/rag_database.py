@@ -220,20 +220,20 @@ class RagDatabase:
         try:
 
             if (database is None and embedding_dimensions is None):
-                logger.error("RagDatabase: Either 'database' or 'embedding_dimensions' must be provided.")
+                logger.error("RAG Database: Either 'database' or 'embedding_dimensions' must be provided.")
                 raise ValueError("Either 'database' or 'embedding_dimensions' must be provided.")
 
             if database is None:
-                logger.info("RagDatabase: Initializing empty RAG database.")
+                logger.info("RAG Database: Initializing empty RAG database.")
                 database = empty_rag_schema(dimensions=embedding_dimensions)
             else:
-                logger.info("RagDatabase: Initializing RAG database from DataFrame.")
+                logger.info("RAG Database: Initializing RAG database from DataFrame.")
 
             self.embedding_model: EmbeddingModel = EmbeddingModel(model=model)
             self.vector_db: VectorDB = VectorDB(database=database)
 
         except Exception:
-            logger.error("RAG Database: Error initializing RagDatabase:")
+            logger.error("RAG Database: Error initializing RAG Database:")
             raise
 
     def is_document_in_database(self, title: str) -> bool:
