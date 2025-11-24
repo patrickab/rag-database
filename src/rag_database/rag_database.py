@@ -7,16 +7,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from llm_baseclient.client import LLMClient
 import numpy as np
 import polars as pl
-import tqdm
 from transformers import AutoTokenizer
 
 from ._logger import get_logger
 from .rag_config import (
     CHUNKING_OVERLAP,
-    GEMINI_EMBEDDING_MODELS,
     MODEL_CONFIG,
-    OLLAMA_EMBEDDING_MODELS,
-    OPENAI_EMBEDDING_MODELS,
     TIMEOUT,
     DatabaseKeys,
 )
@@ -217,11 +213,7 @@ class RagDatabase:
     """Database for Retrieval Augmented Generation (RAG)"""
 
     def __init__(self, database: pl.DataFrame, model:str) -> None:
-        """
-        Initialize RAG Database with embedding model and vector DB.
-        Can be initialized with existing dataframe to avoid rebuilding the DB.
-        Defaults to empty EMPTY_RAG_SCHEMA if no dataframe is provided.
-        """
+        """Initialize RAG Database with embedding model and vector DB."""
         try:
             self.embedding_model: EmbeddingModel = EmbeddingModel(model=model)
             self.vector_db: VectorDB = VectorDB(database=database)
@@ -235,9 +227,8 @@ class RagDatabase:
 
     def rag_process_query(self, rag_query: RAGQuery) -> RAGResponse:
         """Process RAG query and return relevant results"""
-
         try:
-            query_embedding = self.embedding_model.single_embed(rag_query.query, task_type="RETRIEVAL_QUERY")
+            query_embedding = self.embedding_model.embed(rag_query.query, task_type="RETRIEVAL_QUERY")
         except Exception:
             logger.error("RAG Database: Error embedding query:")
             raise
@@ -253,55 +244,34 @@ class RagDatabase:
         try:
             texts_to_embed = []
             titles_to_embed = []
-            for text,title in zip(texts, titles, strict=True):
+            
+            # Filter duplicates or updates
+            for text, title in zip(texts, titles, strict=True):
                 if not self.is_document_in_database(title):
                     texts_to_embed.append(text)
                     titles_to_embed.append(title)
                 else:
-                    # Check if text has changed - if so, re-embed and update
+                    # Check if text has changed
                     existing_text = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) == title)[DatabaseKeys.KEY_TXT][0]
                     if existing_text != text:
                         texts_to_embed.append(text)
                         titles_to_embed.append(title)
                         self.vector_db.database = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) != title)
 
+            if not texts_to_embed:
+                logger.info("RAG Database: No new documents to add.")
+                return
+
             logger.info(f"RAG Database: Found {len(texts_to_embed)} new documents. Proceeding to embed...")
 
-            if self.embedding_model.model in OPENAI_EMBEDDING_MODELS:
-                embeddings = self.embedding_model.embed_batch(texts_to_embed)
-
-                new_entries = pl.DataFrame(
-                    {
-                        DatabaseKeys.KEY_TITLE:titles_to_embed,
-                        DatabaseKeys.KEY_TXT: texts_to_embed,
-                        DatabaseKeys.KEY_EMBEDDINGS: embeddings,
-                    }
-                )
-
-            if self.embedding_model.model in GEMINI_EMBEDDING_MODELS:
-                embeddings = self.embedding_model.embed_batch(texts_to_embed, task_type="RETRIEVAL_DOCUMENT")
-
-                new_entries = pl.DataFrame(
-                    {
-                        DatabaseKeys.KEY_TITLE: titles_to_embed,
-                        DatabaseKeys.KEY_TXT: texts_to_embed,
-                        DatabaseKeys.KEY_EMBEDDINGS: embeddings,
-                    }
-                )
-
-            if self.embedding_model.model in OLLAMA_EMBEDDING_MODELS:
-
-                embeddings = [
-                    self.embedding_model.single_embed(text) for text in tqdm.tqdm(texts_to_embed)
-                ]
-
-                new_entries = pl.DataFrame(
-                    {
-                        DatabaseKeys.KEY_TITLE: titles_to_embed,
-                        DatabaseKeys.KEY_TXT: texts_to_embed,
-                        DatabaseKeys.KEY_EMBEDDINGS: embeddings,
-                    }
-                )
+            embeddings = self.embedding_model.embed(texts_to_embed, task_type="RETRIEVAL_DOCUMENT")
+            new_entries = pl.DataFrame(
+                {
+                    DatabaseKeys.KEY_TITLE: titles_to_embed,
+                    DatabaseKeys.KEY_TXT: texts_to_embed,
+                    DatabaseKeys.KEY_EMBEDDINGS: embeddings,
+                }
+            )
 
             self.vector_db.database = pl.concat([self.vector_db.database, new_entries])
 
