@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import json
 import os
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from llm_baseclient.client import LLMClient
@@ -15,6 +15,7 @@ from .rag_config import (
     MODEL_CONFIG,
     TIMEOUT,
     DatabaseKeys,
+    empty_rag_schema,
 )
 
 logger = get_logger()
@@ -112,7 +113,10 @@ class EmbeddingModel:
 
         return chunked_texts
 
-    def embed(self, texts: Union[str, List[str]], task_type: Optional[str] = None) -> Union[np.ndarray, List[np.ndarray]]:
+    def embed(self,
+        texts: Union[str, List[str]],
+        **kwargs: dict[str, Any],
+    )-> Union[np.ndarray, List[np.ndarray]]:
         """
         Unified embedding method for single strings or batches.
         Handles chunking, API calls via LLMClient, and aggregating (mean pooling) chunks back to documents.
@@ -144,9 +148,8 @@ class EmbeddingModel:
             response = self.llm_client.get_embedding(
                 model=self.model,
                 input_text=flattened_chunks,
-                dimensions=MODEL_CONFIG[self.model]["dimensions"],
-                task_type=task_type, # Used by Gemini
-                timeout=TIMEOUT
+                timeout=TIMEOUT,
+                **kwargs,
             )
         except Exception as e:
             logger.error(f"Embedding failed: {e}")
@@ -212,11 +215,23 @@ class VectorDB:
 class RagDatabase:
     """Database for Retrieval Augmented Generation (RAG)"""
 
-    def __init__(self, database: pl.DataFrame, model:str) -> None:
+    def __init__(self, model:str, database: Optional[pl.DataFrame]=None, embedding_dimensions: Optional[int]=None) -> None:
         """Initialize RAG Database with embedding model and vector DB."""
         try:
+
+            if (database is None and embedding_dimensions is None):
+                logger.error("RagDatabase: Either 'database' or 'embedding_dimensions' must be provided.")
+                raise ValueError("Either 'database' or 'embedding_dimensions' must be provided.")
+
+            if database is None:
+                logger.info("RagDatabase: Initializing empty RAG database.")
+                database = empty_rag_schema(dimensions=embedding_dimensions)
+            else:
+                logger.info("RagDatabase: Initializing RAG database from DataFrame.")
+
             self.embedding_model: EmbeddingModel = EmbeddingModel(model=model)
             self.vector_db: VectorDB = VectorDB(database=database)
+
         except Exception:
             logger.error("RAG Database: Error initializing RagDatabase:")
             raise
@@ -225,17 +240,17 @@ class RagDatabase:
         """Check if a document with the given title exists in the database."""
         return title in self.vector_db.database[DatabaseKeys.KEY_TITLE].to_list()
 
-    def rag_process_query(self, rag_query: RAGQuery) -> RAGResponse:
+    def rag_process_query(self, rag_query: RAGQuery, **kwargs: dict[str, Any]) -> RAGResponse:
         """Process RAG query and return relevant results"""
         try:
-            query_embedding = self.embedding_model.embed(rag_query.query, task_type="RETRIEVAL_QUERY")
+            query_embedding = self.embedding_model.embed(rag_query.query, **kwargs)
         except Exception:
             logger.error("RAG Database: Error embedding query:")
             raise
 
         return self.vector_db.similarity_search(query_embedding, rag_query.k_documents)
 
-    def add_documents(self, titles: str|list[str], texts: str|list[str]) -> None:
+    def add_documents(self, titles: str|list[str], texts: str|list[str], **kwargs: dict[str, Any]) -> None:
         """Add documents to the RAG database."""
 
         logger.info(f"RAG Database: Using embedding model {self.embedding_model.model}")
@@ -264,7 +279,7 @@ class RagDatabase:
 
             logger.info(f"RAG Database: Found {len(texts_to_embed)} new documents. Proceeding to embed...")
 
-            embeddings = self.embedding_model.embed(texts_to_embed, task_type="RETRIEVAL_DOCUMENT")
+            embeddings = self.embedding_model.embed(texts_to_embed, **kwargs)
             new_entries = pl.DataFrame(
                 {
                     DatabaseKeys.KEY_TITLE: titles_to_embed,
