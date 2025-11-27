@@ -51,7 +51,7 @@ class RAGIngestionPayload:
         texts_retrieval: Optional[list[str]] = None,
     ) -> Self:
         """
-        Constructs a DocumentBatch from lists of components.
+        Constructs a RAGIngestionPayload from lists of components.
         Requires either 'texts' (for both embedding and retrieval)
         OR 'texts_embedding' and 'texts_retrieval' together.
         """
@@ -75,14 +75,11 @@ class RAGIngestionPayload:
                 f"Embedding texts: {len(active_texts_embedding)}, Retrieval texts: {len(active_texts_retrieval)}"
             )
 
-        # Convert metadata dicts to JSON strings for efficient storage as pl.String
-        serialized_metadata = [json.dumps(m) for m in metadata]
-
         df = pl.DataFrame({
             DatabaseKeys.KEY_TITLE: titles,
             DatabaseKeys.KEY_TXT_EMBEDDING: active_texts_embedding,
             DatabaseKeys.KEY_TXT_RETRIEVAL: active_texts_retrieval,
-            DatabaseKeys.KEY_METADATA: serialized_metadata,
+            DatabaseKeys.KEY_METADATA: metadata,
         })
         return cls(df)
 
@@ -96,9 +93,9 @@ class RAGIngestionPayload:
         }
         for col, dtype in expected_cols_and_types.items():
             if col not in self.df.columns:
-                raise ValueError(f"DocumentBatch missing required column: '{col}'")
+                raise ValueError(f"RAGIngestionPayload missing required column: '{col}'")
             if self.df[col].dtype != dtype:
-                raise TypeError(f"Column '{col}' in DocumentBatch has incorrect dtype: expected {dtype}, got {self.df[col].dtype}")
+                raise TypeError(f"Column '{col}' in RAGIngestionPayload has incorrect dtype: expected {dtype}, got {self.df[col].dtype}")
 
     @property
     def dataframe(self) -> pl.DataFrame:
@@ -129,7 +126,7 @@ class RAGIngestionPayload:
         return len(self.df)
 
     def __repr__(self) -> str:
-        return f"DocumentBatch(num_documents={len(self)}, titles={self.titles}, metadata={self.metadata})"
+        return f"RAGIngestionPayload(num_documents={len(self)}, titles={self.titles}, metadata={self.metadata})"
 
 @dataclass
 class RAGResponse:
