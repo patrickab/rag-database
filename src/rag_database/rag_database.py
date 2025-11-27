@@ -48,6 +48,9 @@ class RAGIngestionPayload:
         df = pl.read_parquet(path)
         return cls(df)
 
+    def to_parquet(self, path: pathlib.Path) -> None:
+        """Writes the document batch to a Parquet file."""
+        self.df.write_parquet(path)
 
     @classmethod
     def from_lists(
@@ -93,6 +96,51 @@ class RAGIngestionPayload:
             DatabaseKeys.KEY_METADATA: serialized_metadata,
         })
         return cls(df)
+
+    def _validate_schema(self) -> None:
+        """Ensures the DataFrame conforms to the expected minimal schema for a batch."""
+        expected_cols_and_types = {
+            DatabaseKeys.KEY_TITLE: pl.Utf8,
+            DatabaseKeys.KEY_TXT_EMBEDDING: pl.Utf8,
+            DatabaseKeys.KEY_TXT_RETRIEVAL: pl.Utf8,
+            DatabaseKeys.KEY_METADATA: pl.String,
+        }
+        for col, dtype in expected_cols_and_types.items():
+            if col not in self.df.columns:
+                raise ValueError(f"DocumentBatch missing required column: '{col}'")
+            if self.df[col].dtype != dtype:
+                raise TypeError(f"Column '{col}' in DocumentBatch has incorrect dtype: expected {dtype}, got {self.df[col].dtype}")
+
+    @property
+    def dataframe(self) -> pl.DataFrame:
+        """Returns a clone of the internal Polars DataFrame to prevent external modification."""
+        return self.df.clone()
+
+    @property
+    def titles(self) -> list[str]:
+        return self.df[DatabaseKeys.KEY_TITLE].to_list()
+
+    @property
+    def texts_embedding(self) -> list[str]:
+        return self.df[DatabaseKeys.KEY_TXT_EMBEDDING].to_list()
+
+    @property
+    def texts_retrieval(self) -> list[str]:
+        return self.df[DatabaseKeys.KEY_TXT_RETRIEVAL].to_list()
+
+    @property
+    def metadata(self) -> list[dict[str, Any]]:
+        """
+        Returns metadata as a list of parsed dictionaries.
+        Assumes metadata in the DataFrame is stored as JSON strings.
+        """
+        return [json.loads(s) for s in self.df[DatabaseKeys.KEY_METADATA].to_list()]
+
+    def __len__(self) -> int:
+        return len(self.df)
+
+    def __repr__(self) -> str:
+        return f"DocumentBatch(num_documents={len(self)}, titles={self.titles}, metadata={self.metadata})"
 
 @dataclass
 class RAGResponse:
