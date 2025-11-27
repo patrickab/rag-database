@@ -29,6 +29,7 @@ class RAGQuery:
     query: str
     k_documents: int
 
+@dataclass
 class RAGIngestionPayload:
     """Payload for RAG Document Ingestion"""
     """
