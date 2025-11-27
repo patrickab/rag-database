@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 import json
 import os
-from typing import Any, List, Optional, Union
+import pathlib
+from typing import Any, List, Optional, Self, Union
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from llm_baseclient.client import LLMClient
@@ -27,6 +28,74 @@ class RAGQuery:
 
     query: str
     k_documents: int
+
+class RAGIngestionPayload:
+    """Payload for RAG Document Ingestion"""
+    """
+    A batch of documents intended for RAG database ingestion.
+    Encapsulates titles, texts for embedding, texts for retrieval, and metadata
+    within a Polars DataFrame for efficient processing and serialization.
+    """
+    df: pl.DataFrame
+
+    def __init__(self, df: pl.DataFrame) -> None:
+        self.df = df
+        self._validate_schema()
+
+    @classmethod
+    def from_parquet(cls, path: pathlib.Path) -> Self:
+        """Reads a document batch from a Parquet file."""
+        df = pl.read_parquet(path)
+        return cls(df)
+
+    def to_parquet(self, path: pathlib.Path) -> None:
+        """Writes the document batch to a Parquet file."""
+        self.df.write_parquet(path)
+
+    @classmethod
+    def from_lists(
+        cls,
+        titles: list[str],
+        metadata: list[dict[str, Any]],
+        texts: Optional[list[str]] = None,
+        texts_embedding: Optional[list[str]] = None,
+        texts_retrieval: Optional[list[str]] = None,
+    ) -> Self:
+        """
+        Constructs a DocumentBatch from lists of components.
+        Requires either 'texts' (for both embedding and retrieval)
+        OR 'texts_embedding' and 'texts_retrieval' together.
+        """
+        is_texts_only = texts is not None and texts_embedding is None and texts_retrieval is None
+        is_embedding_retrieval_together = texts is None and texts_embedding is not None and texts_retrieval is not None
+
+        if not (is_texts_only or is_embedding_retrieval_together):
+            raise ValueError(
+                "Invalid document input. Provide either 'texts' alone (for both embedding and retrieval), "
+                "or 'texts_embedding' and 'texts_retrieval' together."
+            )
+
+        active_texts_embedding = texts if is_texts_only else texts_embedding
+        active_texts_retrieval = texts if is_texts_only else texts_retrieval
+
+        # Basic length checks
+        if not (len(titles) == len(active_texts_embedding) == len(active_texts_retrieval) == len(metadata)):
+            raise ValueError(
+                f"All input lists (titles, metadata, embedding texts, retrieval texts) must have the same length. "
+                f"Titles: {len(titles)}, Metadata: {len(metadata)}, "
+                f"Embedding texts: {len(active_texts_embedding)}, Retrieval texts: {len(active_texts_retrieval)}"
+            )
+
+        # Convert metadata dicts to JSON strings for efficient storage as pl.String
+        serialized_metadata = [json.dumps(m) for m in metadata]
+
+        df = pl.DataFrame({
+            DatabaseKeys.KEY_TITLE: titles,
+            DatabaseKeys.KEY_TXT_EMBEDDING: active_texts_embedding,
+            DatabaseKeys.KEY_TXT_RETRIEVAL: active_texts_retrieval,
+            DatabaseKeys.KEY_METADATA: serialized_metadata,
+        })
+        return cls(df)
 
 @dataclass
 class RAGResponse:
