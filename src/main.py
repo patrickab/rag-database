@@ -4,7 +4,8 @@ import polars as pl
 
 from rag_database._logger import get_logger
 from rag_database.rag_config import DEFAULT_EMBEDDING_MODEL, MODEL_CONFIG
-from rag_database.rag_database import EmbeddingModel, RagDatabase, RAGIngestionPayload, RAGQuery
+from rag_database.rag_database import EmbeddingModel, RagDatabase
+from rag_database.types import RAGIngestionPayload, RAGQuery
 
 
 def main() -> None:
