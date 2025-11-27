@@ -1,6 +1,8 @@
 import json
 import os
 from pathlib import Path
+import random
+import time
 from typing import Any, List, Optional, Union
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -12,6 +14,7 @@ from transformers import AutoTokenizer
 from ._logger import get_logger
 from .dataclasses import RAGIngestionPayload, RAGQuery, RAGResponse
 from .rag_config import (
+    BATCH_SIZE,
     CHUNKING_OVERLAP,
     MODEL_CONFIG,
     TIMEOUT,
@@ -107,20 +110,44 @@ class EmbeddingModel:
         lengths = [len(chunks) for chunks in chunked_texts]
         flattened_chunks = [chunk for chunks in chunked_texts for chunk in chunks]
 
-        # 4. Call Unified Client
-        try: # LLMClient handles routing (Ollama / vLLM / OpenAI / Gemini / Anthropic / Bedrock) based on model string
-            response = self.llm_client.get_embedding(
-                model=self.model,
-                input_text=flattened_chunks,
-                timeout=TIMEOUT,
-                **kwargs,
-            )
-        except Exception as e:
-            logger.error(f"Embedding failed: {e}")
-            raise e
+        # 4. Call Unified Client in batches
+        all_embeddings = []
+
+        for i in range(0, len(flattened_chunks), BATCH_SIZE):
+            batch = flattened_chunks[i:i + BATCH_SIZE]
+            max_retries = 4
+            base_delay = 5 # seconds
+
+            for attempt in range(max_retries): # Retry up to max_retries
+                try:
+                    response = self.llm_client.get_embedding(
+                        model=self.model,
+                        input_text=batch,
+                        timeout=TIMEOUT,
+                        **kwargs,
+                    )
+                    batch_embeddings = [item['embedding'] for item in response['data']]
+                    all_embeddings.extend(batch_embeddings)
+                    break  # Success: exit the retry loop for batch
+
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        # Exponential backoff: 5s, 10s, 20s, 40s
+                        delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(
+                            f"Embedding failed on attempt {attempt + 1}/{max_retries}. "
+                            f"Retrying in {delay:.2f}s... Error: {e}"
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.error(
+                            f"Embedding failed for batch {i//BATCH_SIZE + 1} "
+                            f"after {max_retries} attempts. Error: {e}"
+                        )
+                        raise e
 
         # 5. Extract Embeddings
-        raw_embeddings = np.array([item['embedding'] for item in response['data']])
+        raw_embeddings = np.array(all_embeddings)
 
         # 6. Reconstruct Structure (Split flattened list back into document groups)
         grouped_embeddings = np.split(raw_embeddings, np.cumsum(lengths)[:-1]) if len(lengths) > 1 else [raw_embeddings]

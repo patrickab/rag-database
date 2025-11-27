@@ -7,6 +7,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 TIMEOUT = 20
 CHUNKING_OVERLAP = 200
+BATCH_SIZE = 100 # Can be increased eg for OpenAI - for local inference increasing batch size will likely not improve performance
 
 MODEL_CONFIG = {
     # All currently tested/supported embedding models - can be easily extended with any Ollama models
