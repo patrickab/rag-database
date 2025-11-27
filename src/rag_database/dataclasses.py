@@ -98,7 +98,7 @@ class RAGIngestionPayload:
             if col not in self.df.columns:
                 raise ValueError(f"RAGIngestionPayload missing required column: '{col}'")
             if self.df[col].dtype != dtype:
-                raise TypeError(f"Column '{col}' in RAGIngestionPayload has incorrect dtype: expected {dtype}, got {self.df[col].dtype}")
+                raise TypeError(f"Column '{col}' in RAGIngestionPayload - incorrect dtype: expected {dtype}, got {self.df[col].dtype}")
 
     @property
     def dataframe(self) -> pl.DataFrame:
