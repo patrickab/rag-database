@@ -62,10 +62,20 @@ def main() -> None:
                     texts.append(f.read())
                     titles.append(doc)
 
-    # Add documents (retrieval) vs (Gemini/Gemma specific)
-    rag_db.add_documents(titles=titles, texts=texts)
-    rag_db.add_documents(titles=titles, texts=texts, task_type="RETRIEVAL_DOCUMENT")
+    # create a dictionary of metadata with entries for each documents
+    metadata = []
+    for i in range(len(titles)):
+        meta = {
+            "source": titles[i],
+            "length": len(texts[i]),
+            "index": i
+        }
+        metadata.append(meta)
 
+    # Add documents (retrieval) vs (Gemini/Gemma specific)
+    # In practice it can be beneficial to seperate texts for embedding vs retrieval
+    rag_db.add_documents(titles=titles, texts_embedding=texts, texts_retrieval=texts, metadata=metadata)
+    rag_db.add_documents(titles=titles, texts_embedding=texts, texts_retrieval=texts, metadata=metadata, task_type="RETRIEVAL_DOCUMENT")
     # Process a RAG Query
     rag_query = RAGQuery(
         query="What is the memory wall & how does it relate to Moores law?", 

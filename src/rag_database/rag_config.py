@@ -43,8 +43,9 @@ class DatabaseKeys:
     """Keys for the RAG DataFrame"""
 
     KEY_TITLE = "title"
-    KEY_TXT = "text"
     KEY_METADATA = "metadata"
+    KEY_TXT_RETRIEVAL = "text_retrieval"
+    KEY_TXT_EMBEDDING = "text_embedding"
     KEY_EMBEDDINGS = "embeddings"
     KEY_SIMILARITIES = "similarities"
 
@@ -53,8 +54,9 @@ def empty_rag_schema(dimensions:int) -> pl.DataFrame:
     return pl.DataFrame(
         schema={
             DatabaseKeys.KEY_TITLE: pl.Utf8,
-            DatabaseKeys.KEY_TXT: pl.Utf8,
             DatabaseKeys.KEY_METADATA: pl.String,
+            DatabaseKeys.KEY_TXT_RETRIEVAL: pl.Utf8,
+            DatabaseKeys.KEY_TXT_EMBEDDING: pl.Utf8,
             DatabaseKeys.KEY_EMBEDDINGS: pl.Array(pl.Float64, width=dimensions),
         }
     )

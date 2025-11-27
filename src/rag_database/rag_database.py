@@ -35,14 +35,16 @@ class RAGResponse:
     titles: list[str]
     texts: list[str]
     similarities: list[float]
+    metadata: list[dict[str, Any]]
 
     def to_json(self) -> str:
         """Convert RAGResponse to a JSON string."""
         return json.dumps(
             {
-                DatabaseKeys.KEY_TITLE: self.titles,
                 DatabaseKeys.KEY_SIMILARITIES: self.similarities,
-                DatabaseKeys.KEY_TXT: self.texts,
+                DatabaseKeys.KEY_TITLE: self.titles,
+                DatabaseKeys.KEY_METADATA: self.metadata,
+                DatabaseKeys.KEY_TXT_RETRIEVAL: self.texts, 
             },
             ensure_ascii=False,
             indent=2,
@@ -54,7 +56,8 @@ class RAGResponse:
             {
                 DatabaseKeys.KEY_SIMILARITIES: self.similarities,
                 DatabaseKeys.KEY_TITLE: self.titles,
-                DatabaseKeys.KEY_TXT: self.texts,
+                DatabaseKeys.KEY_METADATA: self.metadata,
+                DatabaseKeys.KEY_TXT_RETRIEVAL: self.texts,
             }
         )
 
@@ -207,8 +210,9 @@ class VectorDB:
 
         return RAGResponse(
             titles=df_top_k[DatabaseKeys.KEY_TITLE].to_list(),
-            texts=df_top_k[DatabaseKeys.KEY_TXT].to_list(),
+            texts=df_top_k[DatabaseKeys.KEY_TXT_RETRIEVAL].to_list(),
             similarities=cosine_similarities[top_indices].tolist(),
+            metadata=[json.loads(meta) for meta in df_top_k[DatabaseKeys.KEY_METADATA].to_list()],
         )
 
 
@@ -243,34 +247,45 @@ class RagDatabase:
     def rag_process_query(self, rag_query: RAGQuery, **kwargs: dict[str, Any]) -> RAGResponse:
         """Process RAG query and return relevant results"""
         try:
-            query_embedding = self.embedding_model.embed(rag_query.query, **kwargs)
+            # Query embedding might also benefit from a prefix, e.g., "query: "
+            query_text_for_embedding = f"query: {rag_query.query}"
+            query_embedding = self.embedding_model.embed(query_text_for_embedding, **kwargs)
         except Exception:
             logger.error("RAG Database: Error embedding query:")
             raise
 
         return self.vector_db.similarity_search(query_embedding, rag_query.k_documents)
 
-    def add_documents(self, titles: str|list[str], texts: str|list[str], **kwargs: dict[str, Any]) -> None:
+    def add_documents(self, titles: str|list[str],
+        texts_embedding: str|list[str],
+        texts_retrieval: str|list[str],
+        metadata: list[dict[str, Any]],
+        **kwargs: dict[str, Any]) -> None:
         """Add documents to the RAG database."""
 
         logger.info(f"RAG Database: Using embedding model {self.embedding_model.model}")
-        logger.info(f"RAG Database: Probing {len(texts)} documents")
+        logger.info(f"RAG Database: Probing {len(texts_retrieval)} documents")
 
         try:
             texts_to_embed = []
             titles_to_embed = []
-            
+            texts_to_retrieve = []
+
             # Filter duplicates or updates
-            for text, title in zip(texts, titles, strict=True):
+            for text_embedding, title, text_retrieval in zip(texts_embedding, titles, texts_retrieval, strict=True):
                 if not self.is_document_in_database(title):
-                    texts_to_embed.append(text)
+                    texts_to_embed.append(text_embedding)
+                    texts_to_retrieve.append(text_retrieval)
                     titles_to_embed.append(title)
                 else:
                     # Check if text has changed
-                    existing_text = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) == title)[DatabaseKeys.KEY_TXT][0]
-                    if existing_text != text:
-                        texts_to_embed.append(text)
+                    existing_text = self.vector_db.database.filter(
+                        pl.col(DatabaseKeys.KEY_TITLE) == title
+                    )[DatabaseKeys.KEY_TXT_EMBEDDING][0]
+                    if existing_text != text_embedding:
+                        texts_to_embed.append(text_embedding)
                         titles_to_embed.append(title)
+                        # Remove old entry if text has changed to update it
                         self.vector_db.database = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) != title)
 
             if not texts_to_embed:
@@ -283,7 +298,9 @@ class RagDatabase:
             new_entries = pl.DataFrame(
                 {
                     DatabaseKeys.KEY_TITLE: titles_to_embed,
-                    DatabaseKeys.KEY_TXT: texts_to_embed,
+                    DatabaseKeys.KEY_METADATA: [json.dumps(meta) for meta in metadata],
+                    DatabaseKeys.KEY_TXT_RETRIEVAL: texts_to_embed, # Store original text for retrieval
+                    DatabaseKeys.KEY_TXT_EMBEDDING: texts_to_embed, # Store text used for embedding
                     DatabaseKeys.KEY_EMBEDDINGS: embeddings,
                 }
             )
