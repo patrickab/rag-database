@@ -116,7 +116,7 @@ class EmbeddingModel:
         for i in range(0, len(flattened_chunks), BATCH_SIZE):
             batch = flattened_chunks[i:i + BATCH_SIZE]
             max_retries = 4
-            base_delay = 5 # seconds
+            base_delay = 15 # seconds
 
             for attempt in range(max_retries): # Retry up to max_retries
                 try:
