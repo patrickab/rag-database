@@ -89,7 +89,7 @@ class RAGIngestionPayload:
             DatabaseKeys.KEY_TITLE: pl.Utf8,
             DatabaseKeys.KEY_TXT_EMBEDDING: pl.Utf8,
             DatabaseKeys.KEY_TXT_RETRIEVAL: pl.Utf8,
-            DatabaseKeys.KEY_METADATA: pl.String,
+            DatabaseKeys.KEY_METADATA: pl.Struct,
         }
         for col, dtype in expected_cols_and_types.items():
             if col not in self.df.columns:
