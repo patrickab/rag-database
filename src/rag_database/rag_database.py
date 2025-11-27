@@ -152,6 +152,23 @@ class RAGResponse:
     similarities: list[float]
     metadata: list[dict[str, Any]]
 
+    def __str__(self) -> str:
+        """Provide a user-friendly string representation with all results in columns."""
+
+        output_lines = [
+            f"RAGResponse: {len(self.titles)} results\n",
+            f"{'Title':<50} {'Similarity':>10}"
+        ]
+        output_lines.append("-" * 61)
+
+        for title, similarity in zip(self.titles, self.similarities, strict=False):
+            truncated_title = title[:47] + "..." if len(title) > 50 else title
+            output_lines.append(f"{truncated_title:<50} {similarity:>10.4f}")
+
+        result_str = "\n".join(output_lines)
+        logger.info(result_str)
+        return f"RAGResponse ({len(self.titles)} results)"
+
     def to_json(self) -> str:
         """Convert RAGResponse to a JSON string."""
         return json.dumps(
