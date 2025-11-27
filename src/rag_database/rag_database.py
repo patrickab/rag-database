@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 from typing import Any, List, Optional, Union
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -198,6 +199,18 @@ class RagDatabase:
 
         except Exception:
             logger.error("RAG Database: Error initializing RAG Database:")
+            raise
+
+    @classmethod
+    def from_parquet(cls, parquet_path: Union[str, Path], model: str) -> "RagDatabase":
+        """Initialize RAG Database from stored parquet file."""
+        try:
+            logger.info(f"RAG Database: Loading RAG database from {parquet_path}")
+            database = pl.read_parquet(parquet_path)
+            model = MODEL_CONFIG.keys()  # Adjust this if model info is stored differently
+            return cls(model=model, database=database)
+        except Exception:
+            logger.error("RAG Database: Error loading RAG Database from parquet:")
             raise
 
     def is_document_in_database(self, title: str) -> bool:
