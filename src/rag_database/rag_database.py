@@ -159,20 +159,21 @@ class RAGResponse:
                 DatabaseKeys.KEY_SIMILARITIES: self.similarities,
                 DatabaseKeys.KEY_TITLE: self.titles,
                 DatabaseKeys.KEY_METADATA: self.metadata,
-                DatabaseKeys.KEY_TXT_RETRIEVAL: self.texts, 
+                DatabaseKeys.KEY_TXT_RETRIEVAL: self.texts,
             },
             ensure_ascii=False,
             indent=2,
         )
 
     def to_polars(self) -> pl.DataFrame:
-        """Convert RAGResponse to a Polars DataFrame."""
+        """Convert RAGResponse to a Polars DataFrame, serializing metadata to JSON strings."""
+        metadata_json = [json.dumps(m) for m in self.metadata]
         return pl.DataFrame(
             {
                 DatabaseKeys.KEY_SIMILARITIES: self.similarities,
                 DatabaseKeys.KEY_TITLE: self.titles,
-                DatabaseKeys.KEY_METADATA: self.metadata,
                 DatabaseKeys.KEY_TXT_RETRIEVAL: self.texts,
+                DatabaseKeys.KEY_METADATA: metadata_json,
             }
         )
 
