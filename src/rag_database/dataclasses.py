@@ -31,6 +31,17 @@ class RAGIngestionPayload:
         self.df = df
         self._validate_schema()
 
+    @staticmethod
+    def create_empty_payload() -> Self:
+        """Creates an empty RAGIngestionPayload with the correct schema."""
+        schema = {
+            DatabaseKeys.KEY_TITLE: pl.String,
+            DatabaseKeys.KEY_TXT_RETRIEVAL: pl.String,
+            DatabaseKeys.KEY_TXT_EMBEDDING: pl.String,
+            DatabaseKeys.KEY_METADATA: pl.String,
+        }
+        return RAGIngestionPayload(df=pl.DataFrame(schema=schema))
+
     @classmethod
     def from_parquet(cls, path: pathlib.Path) -> Self:
         """Reads a document batch from a Parquet file."""
