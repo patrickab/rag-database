@@ -72,10 +72,12 @@ def main() -> None:
         }
         metadata.append(meta)
 
-    # Add documents (retrieval) vs (Gemini/Gemma specific)
+    # Add documents for retrieval - (Gemini/Gemma specific parameter RETRIEVAL_DOCUMENT improves performance)
+    rag_db.add_documents(titles=titles, texts=texts, metadata=metadata)
+    rag_db.add_documents(titles=titles, texts=texts, metadata=metadata, task_type="RETRIEVAL_DOCUMENT")
     # In practice it can be beneficial to seperate texts for embedding vs retrieval
     rag_db.add_documents(titles=titles, texts_embedding=texts, texts_retrieval=texts, metadata=metadata)
-    rag_db.add_documents(titles=titles, texts_embedding=texts, texts_retrieval=texts, metadata=metadata, task_type="RETRIEVAL_DOCUMENT")
+    rag_db.add_documents(titles=titles, texts_embedding=texts, texts_retrieval=texts, metadata=metadata, task_type="RETRIEVAL_DOCUMENT") # noqa
     # Process a RAG Query
     rag_query = RAGQuery(
         query="What is the memory wall & how does it relate to Moores law?", 

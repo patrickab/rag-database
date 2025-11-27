@@ -257,50 +257,89 @@ class RagDatabase:
         return self.vector_db.similarity_search(query_embedding, rag_query.k_documents)
 
     def add_documents(self, titles: str|list[str],
-        texts_embedding: str|list[str],
-        texts_retrieval: str|list[str],
         metadata: list[dict[str, Any]],
+        texts: str|list[str] | None = None,
+        texts_embedding: str|list[str] | None = None,
+        texts_retrieval: str|list[str] | None = None,
         **kwargs: dict[str, Any]) -> None:
         """Add documents to the RAG database."""
 
+        # Convert all potential single string inputs to lists for consistent processing
+        _titles = [titles] if isinstance(titles, str) else titles
+        _texts = [texts] if isinstance(texts, str) else texts
+        _texts_embedding = [texts_embedding] if isinstance(texts_embedding, str) else texts_embedding
+        _texts_retrieval = [texts_retrieval] if isinstance(texts_retrieval, str) else texts_retrieval
+
+        # Determine input mode and validate
+        is_texts_only = _texts is not None and _texts_embedding is None and _texts_retrieval is None
+        is_embedding_retrieval_together = _texts is None and _texts_embedding is not None and _texts_retrieval is not None
+
+        if not (is_texts_only or is_embedding_retrieval_together):
+            raise ValueError("Invalid document input. Provide either 'texts' alone, or 'texts_embedding'/'texts_retrieval' together.")
+
+        active_texts_embedding: list[str]
+        active_texts_retrieval: list[str]
+
+        if is_texts_only:
+            active_texts_embedding = _texts
+            active_texts_retrieval = _texts
+        else: # is_embedding_retrieval_together
+            active_texts_embedding = _texts_embedding
+            active_texts_retrieval = _texts_retrieval
+
+        # Check lengths for consistency
+        if not (len(_titles) == len(active_texts_embedding) == len(active_texts_retrieval)):
+            raise ValueError(f"All input lists must have the same length.\
+                                Titles: {len(_titles)},\
+                                Embedding texts: {len(active_texts_embedding)},\
+                                Retrieval texts: {len(active_texts_retrieval)}")
+
+        # Check metadata length
+        if len(_titles) != len(metadata):
+             raise ValueError(f"Metadata list length ({len(metadata)}) must match the number of documents ({len(_titles)}).")
+
         logger.info(f"RAG Database: Using embedding model {self.embedding_model.model}")
-        logger.info(f"RAG Database: Probing {len(texts_retrieval)} documents")
+        logger.info(f"RAG Database: Probing {len(active_texts_retrieval)} documents")
 
         try:
-            texts_to_embed = []
+            texts_to_embed_filtered = []
             titles_to_embed = []
-            texts_to_retrieve = []
+            texts_to_retrieve_filtered = []
+            metadata_to_add = []
 
             # Filter duplicates or updates
-            for text_embedding, title, text_retrieval in zip(texts_embedding, titles, texts_retrieval, strict=True):
+            for text_embedding_item, title, text_retrieval_item, meta_item in zip(active_texts_embedding, _titles, active_texts_retrieval, metadata, strict=True): # noqa
                 if not self.is_document_in_database(title):
-                    texts_to_embed.append(text_embedding)
-                    texts_to_retrieve.append(text_retrieval)
+                    texts_to_embed_filtered.append(text_embedding_item)
+                    texts_to_retrieve_filtered.append(text_retrieval_item)
                     titles_to_embed.append(title)
+                    metadata_to_add.append(meta_item)
                 else:
-                    # Check if text has changed
+                    # Check if text used for embedding has changed
                     existing_text = self.vector_db.database.filter(
                         pl.col(DatabaseKeys.KEY_TITLE) == title
                     )[DatabaseKeys.KEY_TXT_EMBEDDING][0]
-                    if existing_text != text_embedding:
-                        texts_to_embed.append(text_embedding)
+                    if existing_text != text_embedding_item:
+                        texts_to_embed_filtered.append(text_embedding_item)
+                        texts_to_retrieve_filtered.append(text_retrieval_item)
                         titles_to_embed.append(title)
+                        metadata_to_add.append(meta_item)
                         # Remove old entry if text has changed to update it
                         self.vector_db.database = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) != title)
 
-            if not texts_to_embed:
+            if not texts_to_embed_filtered:
                 logger.info("RAG Database: No new documents to add.")
                 return
 
-            logger.info(f"RAG Database: Found {len(texts_to_embed)} new documents. Proceeding to embed...")
+            logger.info(f"RAG Database: Found {len(texts_to_embed_filtered)} new documents. Proceeding to embed...")
 
-            embeddings = self.embedding_model.embed(texts_to_embed, **kwargs)
+            embeddings = self.embedding_model.embed(texts_to_embed_filtered, **kwargs)
             new_entries = pl.DataFrame(
                 {
                     DatabaseKeys.KEY_TITLE: titles_to_embed,
-                    DatabaseKeys.KEY_METADATA: [json.dumps(meta) for meta in metadata],
-                    DatabaseKeys.KEY_TXT_RETRIEVAL: texts_to_embed, # Store original text for retrieval
-                    DatabaseKeys.KEY_TXT_EMBEDDING: texts_to_embed, # Store text used for embedding
+                    DatabaseKeys.KEY_METADATA: [json.dumps(meta) for meta in metadata_to_add],
+                    DatabaseKeys.KEY_TXT_RETRIEVAL: texts_to_retrieve_filtered, # Store text used for retrieval
+                    DatabaseKeys.KEY_TXT_EMBEDDING: texts_to_embed_filtered, # Store text used for embedding
                     DatabaseKeys.KEY_EMBEDDINGS: embeddings,
                 }
             )
