@@ -1,4 +1,3 @@
-import json
 import os
 
 import polars as pl
@@ -82,6 +81,11 @@ def main() -> None:
     rag_db.add_documents(payload=payload_single_texts)
     rag_db.add_documents(payload=payload_separate_texts, task_type="RETRIEVAL_DOCUMENT")
 
+    # Payloads can be stored & loaded from disk as parquet files - useful for ingestion pipelines
+    logger.info("\n--- Starting RAG Database Store/Load Demo ---")
+    payload_single_texts.to_parquet("rag_payload.parquet")                      # Store payload to disk
+    loaded_payload = RAGIngestionPayload.from_parquet("rag_payload.parquet")    # Load payload from disk
+
     # Process a RAG Query
     rag_query = RAGQuery(
         query="What is the memory wall & how does it relate to Moores law?", 
@@ -92,11 +96,8 @@ def main() -> None:
     rag_response = rag_db.rag_process_query(rag_query)
     rag_response = rag_db.rag_process_query(rag_query, task_type="RETRIEVAL_QUERY")
 
-    logger.info(f"RAG Demo: Query  -  {rag_query.query}")
-    logger.info("RAG Demo: Response:")
-    response_data = json.loads(rag_response.to_json())
-    logger.info(f"RAG Demo: Titles {json.dumps(response_data["title"], indent=4)}")
-    logger.info(f"RAG Demo: Similarities {json.dumps(response_data["similarities"], indent=4)}")
+    logger.info(f"\n\nRAG Demo: Query  -  {rag_query.query}")
+    logger.info(f"RAG Demo: {rag_response}\n\n")
 
     # ---------------------------------------------------------
     # 3. Store/load Demo
