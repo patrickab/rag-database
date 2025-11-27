@@ -48,9 +48,6 @@ class RAGIngestionPayload:
         df = pl.read_parquet(path)
         return cls(df)
 
-    def to_parquet(self, path: pathlib.Path) -> None:
-        """Writes the document batch to a Parquet file."""
-        self.df.write_parquet(path)
 
     @classmethod
     def from_lists(
@@ -325,64 +322,32 @@ class RagDatabase:
 
         return self.vector_db.similarity_search(query_embedding, rag_query.k_documents)
 
-    def add_documents(self, titles: str|list[str],
-        metadata: list[dict[str, Any]],
-        texts: str|list[str] | None = None,
-        texts_embedding: str|list[str] | None = None,
-        texts_retrieval: str|list[str] | None = None,
-        **kwargs: dict[str, Any]) -> None:
-        """Add documents to the RAG database."""
-
-        # Convert all potential single string inputs to lists for consistent processing
-        _titles = [titles] if isinstance(titles, str) else titles
-        _texts = [texts] if isinstance(texts, str) else texts
-        _texts_embedding = [texts_embedding] if isinstance(texts_embedding, str) else texts_embedding
-        _texts_retrieval = [texts_retrieval] if isinstance(texts_retrieval, str) else texts_retrieval
-
-        # Determine input mode and validate
-        is_texts_only = _texts is not None and _texts_embedding is None and _texts_retrieval is None
-        is_embedding_retrieval_together = _texts is None and _texts_embedding is not None and _texts_retrieval is not None
-
-        if not (is_texts_only or is_embedding_retrieval_together):
-            raise ValueError("Invalid document input. Provide either 'texts' alone, or 'texts_embedding'/'texts_retrieval' together.")
-
-        active_texts_embedding: list[str]
-        active_texts_retrieval: list[str]
-
-        if is_texts_only:
-            active_texts_embedding = _texts
-            active_texts_retrieval = _texts
-        else: # is_embedding_retrieval_together
-            active_texts_embedding = _texts_embedding
-            active_texts_retrieval = _texts_retrieval
-
-        # Check lengths for consistency
-        if not (len(_titles) == len(active_texts_embedding) == len(active_texts_retrieval)):
-            raise ValueError(f"All input lists must have the same length.\
-                                Titles: {len(_titles)},\
-                                Embedding texts: {len(active_texts_embedding)},\
-                                Retrieval texts: {len(active_texts_retrieval)}")
-
-        # Check metadata length
-        if len(_titles) != len(metadata):
-             raise ValueError(f"Metadata list length ({len(metadata)}) must match the number of documents ({len(_titles)}).")
+    def add_documents(self, payload: RAGIngestionPayload, **kwargs: dict[str, Any]) -> None:
+        """Add documents to the RAG database from an ingestion payload."""
+        # Extract data from payload
+        _titles = payload.df[DatabaseKeys.KEY_TITLE].to_list()
+        active_texts_embedding = payload.df[DatabaseKeys.KEY_TXT_EMBEDDING].to_list()
+        active_texts_retrieval = payload.df[DatabaseKeys.KEY_TXT_RETRIEVAL].to_list()
+        metadata_json = payload.df[DatabaseKeys.KEY_METADATA].to_list()
 
         logger.info(f"RAG Database: Using embedding model {self.embedding_model.model}")
-        logger.info(f"RAG Database: Probing {len(active_texts_retrieval)} documents")
+        logger.info(f"RAG Database: Probing {len(_titles)} documents from payload")
 
         try:
             texts_to_embed_filtered = []
             titles_to_embed = []
             texts_to_retrieve_filtered = []
-            metadata_to_add = []
+            metadata_to_add_json = []
 
             # Filter duplicates or updates
-            for text_embedding_item, title, text_retrieval_item, meta_item in zip(active_texts_embedding, _titles, active_texts_retrieval, metadata, strict=True): # noqa
+            for text_embedding_item, title, text_retrieval_item, meta_json_item in zip(
+                active_texts_embedding, _titles, active_texts_retrieval, metadata_json, strict=True
+            ):
                 if not self.is_document_in_database(title):
                     texts_to_embed_filtered.append(text_embedding_item)
                     texts_to_retrieve_filtered.append(text_retrieval_item)
                     titles_to_embed.append(title)
-                    metadata_to_add.append(meta_item)
+                    metadata_to_add_json.append(meta_json_item)
                 else:
                     # Check if text used for embedding has changed
                     existing_text = self.vector_db.database.filter(
@@ -392,7 +357,7 @@ class RagDatabase:
                         texts_to_embed_filtered.append(text_embedding_item)
                         texts_to_retrieve_filtered.append(text_retrieval_item)
                         titles_to_embed.append(title)
-                        metadata_to_add.append(meta_item)
+                        metadata_to_add_json.append(meta_json_item)
                         # Remove old entry if text has changed to update it
                         self.vector_db.database = self.vector_db.database.filter(pl.col(DatabaseKeys.KEY_TITLE) != title)
 
@@ -406,7 +371,7 @@ class RagDatabase:
             new_entries = pl.DataFrame(
                 {
                     DatabaseKeys.KEY_TITLE: titles_to_embed,
-                    DatabaseKeys.KEY_METADATA: [json.dumps(meta) for meta in metadata_to_add],
+                    DatabaseKeys.KEY_METADATA: metadata_to_add_json,
                     DatabaseKeys.KEY_TXT_RETRIEVAL: texts_to_retrieve_filtered, # Store text used for retrieval
                     DatabaseKeys.KEY_TXT_EMBEDDING: texts_to_embed_filtered, # Store text used for embedding
                     DatabaseKeys.KEY_EMBEDDINGS: embeddings,

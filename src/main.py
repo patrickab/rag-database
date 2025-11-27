@@ -5,7 +5,7 @@ import polars as pl
 
 from rag_database._logger import get_logger
 from rag_database.rag_config import DEFAULT_EMBEDDING_MODEL, MODEL_CONFIG
-from rag_database.rag_database import EmbeddingModel, RagDatabase, RAGQuery
+from rag_database.rag_database import EmbeddingModel, RagDatabase, RAGIngestionPayload, RAGQuery
 
 
 def main() -> None:
@@ -16,7 +16,7 @@ def main() -> None:
     # ---------------------------------------------------------
     logger = get_logger()
     logger.info("--- Starting Manual Embedding Demo ---")
-    
+
     # Initialize model
     embedding_model = EmbeddingModel(model=DEFAULT_EMBEDDING_MODEL)
 
@@ -72,12 +72,19 @@ def main() -> None:
         }
         metadata.append(meta)
 
-    # Add documents for retrieval - (Gemini/Gemma specific parameter RETRIEVAL_DOCUMENT improves performance)
-    rag_db.add_documents(titles=titles, texts=texts, metadata=metadata)
-    rag_db.add_documents(titles=titles, texts=texts, metadata=metadata, task_type="RETRIEVAL_DOCUMENT")
-    # In practice it can be beneficial to seperate texts for embedding vs retrieval
-    rag_db.add_documents(titles=titles, texts_embedding=texts, texts_retrieval=texts, metadata=metadata)
-    rag_db.add_documents(titles=titles, texts_embedding=texts, texts_retrieval=texts, metadata=metadata, task_type="RETRIEVAL_DOCUMENT") # noqa
+    ### Create ingestion payloads
+    # 1. Using a single text source for both embedding and retrieval
+    # 2. In practice it can be beneficial to separate texts for embedding vs retrieval
+    payload_single_texts = RAGIngestionPayload.from_lists(titles=titles, texts=texts, metadata=metadata)
+    payload_separate_texts = RAGIngestionPayload.from_lists(titles=titles, texts_embedding=texts, texts_retrieval=texts, metadata=metadata) # noqa
+
+    # Add documents for retrieval using the new payload structure
+    # (Gemini/Gemma specific parameter RETRIEVAL_DOCUMENT improves performance)
+    rag_db.add_documents(payload=payload_single_texts)
+    rag_db.add_documents(payload=payload_single_texts, task_type="RETRIEVAL_DOCUMENT")
+    rag_db.add_documents(payload=payload_separate_texts)
+    rag_db.add_documents(payload=payload_separate_texts, task_type="RETRIEVAL_DOCUMENT")
+
     # Process a RAG Query
     rag_query = RAGQuery(
         query="What is the memory wall & how does it relate to Moores law?", 
