@@ -9,6 +9,7 @@ import polars as pl
 from transformers import AutoTokenizer
 
 from ._logger import get_logger
+from .dataclasses import RAGIngestionPayload, RAGQuery, RAGResponse
 from .rag_config import (
     CHUNKING_OVERLAP,
     MODEL_CONFIG,
@@ -16,7 +17,6 @@ from .rag_config import (
     DatabaseKeys,
     empty_rag_schema,
 )
-from .types import RAGIngestionPayload, RAGQuery, RAGResponse
 
 logger = get_logger()
 

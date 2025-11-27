@@ -3,9 +3,9 @@ import os
 import polars as pl
 
 from rag_database._logger import get_logger
+from rag_database.dataclasses import RAGIngestionPayload, RAGQuery
 from rag_database.rag_config import DEFAULT_EMBEDDING_MODEL, MODEL_CONFIG
 from rag_database.rag_database import EmbeddingModel, RagDatabase
-from rag_database.types import RAGIngestionPayload, RAGQuery
 
 
 def main() -> None:
@@ -85,7 +85,7 @@ def main() -> None:
     # Payloads can be stored & loaded from disk as parquet files - useful for ingestion pipelines
     logger.info("\n--- Starting RAG Database Store/Load Demo ---")
     payload_single_texts.to_parquet("rag_payload.parquet")                      # Store payload to disk
-    loaded_payload = RAGIngestionPayload.from_parquet("rag_payload.parquet")    # Load payload from disk
+    loaded_payload = RAGIngestionPayload.from_parquet("rag_payload.parquet")    # Load payload from disk # noqa
 
     # Process a RAG Query
     rag_query = RAGQuery(
@@ -110,7 +110,7 @@ def main() -> None:
     rag_db_loaded = RagDatabase(model=DEFAULT_EMBEDDING_MODEL, database=loaded_db)  # Re-initialize RAG with the loaded dataframe
 
     count = rag_db_loaded.vector_db.database.height
-    logger.info(f"Successfully loaded RAG Database from disk with {count} documents.")
+    logger.info(f"Successfully loaded RAG Database ({count} documents.)")
 
 if __name__ == "__main__":
     main()
