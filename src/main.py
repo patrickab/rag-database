@@ -78,11 +78,8 @@ def main() -> None:
     payload_single_texts = RAGIngestionPayload.from_lists(titles=titles, texts=texts, metadata=metadata)
     payload_separate_texts = RAGIngestionPayload.from_lists(titles=titles, texts_embedding=texts, texts_retrieval=texts, metadata=metadata) # noqa
 
-    # Add documents for retrieval using the new payload structure
     # (Gemini/Gemma specific parameter RETRIEVAL_DOCUMENT improves performance)
     rag_db.add_documents(payload=payload_single_texts)
-    rag_db.add_documents(payload=payload_single_texts, task_type="RETRIEVAL_DOCUMENT")
-    rag_db.add_documents(payload=payload_separate_texts)
     rag_db.add_documents(payload=payload_separate_texts, task_type="RETRIEVAL_DOCUMENT")
 
     # Process a RAG Query
