@@ -54,7 +54,7 @@ def empty_rag_schema(dimensions:int) -> pl.DataFrame:
     return pl.DataFrame(
         schema={
             DatabaseKeys.KEY_TITLE: pl.Utf8,
-            DatabaseKeys.KEY_METADATA: pl.Struct,
+            DatabaseKeys.KEY_METADATA: pl.String,  # Can store nested JSON-like data
             DatabaseKeys.KEY_TXT_RETRIEVAL: pl.Utf8,
             DatabaseKeys.KEY_TXT_EMBEDDING: pl.Utf8,
             DatabaseKeys.KEY_EMBEDDINGS: pl.Array(pl.Float64, width=dimensions),

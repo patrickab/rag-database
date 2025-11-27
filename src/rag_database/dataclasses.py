@@ -75,11 +75,14 @@ class RAGIngestionPayload:
                 f"Embedding texts: {len(active_texts_embedding)}, Retrieval texts: {len(active_texts_retrieval)}"
             )
 
+        # Convert metadata dicts to JSON strings for efficient storage as pl.String
+        serialized_metadata = [json.dumps(m) for m in metadata]
+
         df = pl.DataFrame({
             DatabaseKeys.KEY_TITLE: titles,
             DatabaseKeys.KEY_TXT_EMBEDDING: active_texts_embedding,
             DatabaseKeys.KEY_TXT_RETRIEVAL: active_texts_retrieval,
-            DatabaseKeys.KEY_METADATA: metadata,
+            DatabaseKeys.KEY_METADATA: serialized_metadata,
         })
         return cls(df)
 
@@ -89,13 +92,13 @@ class RAGIngestionPayload:
             DatabaseKeys.KEY_TITLE: pl.Utf8,
             DatabaseKeys.KEY_TXT_EMBEDDING: pl.Utf8,
             DatabaseKeys.KEY_TXT_RETRIEVAL: pl.Utf8,
-            DatabaseKeys.KEY_METADATA: pl.Struct,
+            DatabaseKeys.KEY_METADATA: pl.String,
         }
         for col, dtype in expected_cols_and_types.items():
             if col not in self.df.columns:
                 raise ValueError(f"RAGIngestionPayload missing required column: '{col}'")
             if self.df[col].dtype != dtype:
-                raise TypeError(f"Column '{col}' in RAGIngestionPayload - incorrect dtype: expected {dtype}, got {self.df[col].dtype}")
+                raise TypeError(f"Column '{col}' in RAGIngestionPayload has incorrect dtype: expected {dtype}, got {self.df[col].dtype}")
 
     @property
     def dataframe(self) -> pl.DataFrame:
@@ -126,7 +129,7 @@ class RAGIngestionPayload:
         return len(self.df)
 
     def __repr__(self) -> str:
-        return f"RAGIngestionPayload(num_documents={len(self)}, titles={self.titles}, metadata={self.metadata})"
+        return f"DocumentBatch(num_documents={len(self)}, titles={self.titles}, metadata={self.metadata})"
 
 @dataclass
 class RAGResponse:
