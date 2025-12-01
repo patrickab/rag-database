@@ -113,8 +113,11 @@ class EmbeddingModel:
         # 4. Call Unified Client in batches
         all_embeddings = []
 
-        for i in range(0, len(flattened_chunks), BATCH_SIZE):
-            batch = flattened_chunks[i:i + BATCH_SIZE]
+        # Gemini free tier has a hard limit of 20 inputs per request
+        batch_size = BATCH_SIZE if "gemini" not in self.model else 19
+
+        for i in range(0, len(flattened_chunks), batch_size):
+            batch = flattened_chunks[i:i + batch_size]
             max_retries = 4
             base_delay = 15 # seconds
 
