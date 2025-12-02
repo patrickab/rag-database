@@ -237,7 +237,6 @@ class RagDatabase:
         try:
             logger.info(f"RAG Database: Loading RAG database from {parquet_path}")
             database = pl.read_parquet(parquet_path)
-            model = MODEL_CONFIG.keys()  # Adjust this if model info is stored differently
             return cls(model=model, database=database)
         except Exception:
             logger.error("RAG Database: Error loading RAG Database from parquet:")
