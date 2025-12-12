@@ -16,6 +16,7 @@ from .dataclasses import RAGIngestionPayload, RAGQuery, RAGResponse
 from .rag_config import (
     BATCH_SIZE,
     CHUNKING_OVERLAP,
+    HF_TOKEN,
     MODEL_CONFIG,
     TIMEOUT,
     DatabaseKeys,
@@ -34,7 +35,7 @@ class EmbeddingModel:
         # Handle restricted access for specific models (e.g., Gemma)
         if model == "embeddinggemma:300m": 
             from huggingface_hub import login
-            hf_token = os.getenv("HUGGINGFACE_API_KEY")
+            hf_token = HF_TOKEN
             login(token=hf_token)
 
         self.model = model
