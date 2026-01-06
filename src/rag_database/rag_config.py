@@ -12,22 +12,22 @@ BATCH_SIZE = 100 # Can be increased eg for OpenAI - for local inference increasi
 
 MODEL_CONFIG = {
     # All currently tested/supported embedding models - can be easily extended with any Ollama models
-    "embeddinggemma:300m": {
+    "ollama/embeddinggemma:300m": {
         "max_tokens": 2048,
         "dimensions": 768, # max value, also allows smaller sizes
         "tokenizer": "google/embeddinggemma-300m" # used to select tokenizer
     },
-    "text-embedding-3-large": {
+    "openai/text-embedding-3-large": {
         "max_tokens": 8191,
         "dimensions": 3072,
         "tokenizer": "DWDMaiMai/tiktoken_cl100k_base"
     },
-    "text-embedding-3-small": {
+    "openai/text-embedding-3-small": {
         "max_tokens": 4096,
         "dimensions": 1536,
         "tokenizer": "DWDMaiMai/tiktoken_cl100k_base"
     },
-    "gemini-embedding-001": {
+    "gemini/gemini-embedding-001": {
         "max_tokens": 2048,
         "dimensions": 3072,
         "tokenizer": "DWDMaiMai/tiktoken_cl100k_base" # use OpenAI tokenizer as proxy for splitting chunks
